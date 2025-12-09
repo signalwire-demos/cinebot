@@ -58,7 +58,7 @@ def setup_swml_handler(swml_url):
     global swml_handler_info
 
     sw_host = get_signalwire_host()
-    project_key = os.getenv("SIGNALWIRE_PROJECT_KEY", "")
+    project_key = os.getenv("SIGNALWIRE_PROJECT_ID", "")
     token = os.getenv("SIGNALWIRE_TOKEN", "")
 
     if not all([sw_host, project_key, token]):
@@ -2316,7 +2316,7 @@ def create_server(port=None):
     async def get_token(request: Request):
         """Generate a guest token for the web client."""
         sw_host = get_signalwire_host()
-        project_key = os.getenv("SIGNALWIRE_PROJECT_KEY", "")
+        project_key = os.getenv("SIGNALWIRE_PROJECT_ID", "")
         token = os.getenv("SIGNALWIRE_TOKEN", "")
 
         if not all([sw_host, project_key, token]):

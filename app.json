@@ -11,8 +11,8 @@
       "description": "SignalWire space name (e.g., 'myspace' or 'myspace.signalwire.com')",
       "required": true
     },
-    "SIGNALWIRE_PROJECT_KEY": {
-      "description": "SignalWire project key",
+    "SIGNALWIRE_PROJECT_ID": {
+      "description": "SignalWire project ID",
       "required": true
     },
     "SIGNALWIRE_TOKEN": {
