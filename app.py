@@ -33,80 +33,136 @@ def get_signalwire_host():
     return f"{space}.signalwire.com"
 
 
-def find_existing_handler(sw_host, project_key, token, swml_url):
-    """Find an existing SWML handler that matches our URL."""
+def find_existing_handler(sw_host, auth, agent_name):
+    """Find an existing SWML handler by name."""
     try:
+        # List all external SWML handlers
         resp = requests.get(
-            f"https://{sw_host}/api/fabric/resources/swml_handlers",
-            auth=(project_key, token),
-            timeout=10
+            f"https://{sw_host}/api/fabric/resources/external_swml_handlers",
+            auth=auth,
+            headers={"Accept": "application/json"}
         )
-        if resp.status_code == 200:
-            data = resp.json()
-            handlers = data.get("data", [])
-            for handler in handlers:
-                if handler.get("request_url") == swml_url:
-                    logger.info(f"Found existing SWML handler: {handler.get('id')}")
-                    return handler
+        if resp.status_code != 200:
+            logger.warning(f"Failed to list handlers: {resp.status_code}")
+            return None
+
+        handlers = resp.json().get("data", [])
+
+        for handler in handlers:
+            # The name is nested in swml_webhook object
+            swml_webhook = handler.get("swml_webhook", {})
+            handler_name = swml_webhook.get("name") or handler.get("display_name")
+
+            # Check if this handler matches our agent name
+            if handler_name == agent_name:
+                handler_id = handler.get("id")
+                handler_url = swml_webhook.get("primary_request_url", "")
+                # Get the address for this handler
+                addr_resp = requests.get(
+                    f"https://{sw_host}/api/fabric/resources/external_swml_handlers/{handler_id}/addresses",
+                    auth=auth,
+                    headers={"Accept": "application/json"}
+                )
+                if addr_resp.status_code == 200:
+                    addresses = addr_resp.json().get("data", [])
+                    if addresses:
+                        return {
+                            "id": handler_id,
+                            "name": handler_name,
+                            "url": handler_url,
+                            "address_id": addresses[0]["id"],
+                            "address": addresses[0]["channels"]["audio"]
+                        }
     except Exception as e:
         logger.error(f"Error finding existing handler: {e}")
     return None
 
 
-def setup_swml_handler(swml_url):
-    """Register or find existing SWML handler with SignalWire."""
-    global swml_handler_info
-
+def setup_swml_handler():
+    """Set up SWML handler on startup."""
     sw_host = get_signalwire_host()
-    project_key = os.getenv("SIGNALWIRE_PROJECT_ID", "")
+    project = os.getenv("SIGNALWIRE_PROJECT_ID", "")
     token = os.getenv("SIGNALWIRE_TOKEN", "")
-
-    if not all([sw_host, project_key, token]):
-        logger.warning("Missing SignalWire credentials - skipping SWML handler setup")
-        return
-
-    # Check for existing handler first
-    existing = find_existing_handler(sw_host, project_key, token, swml_url)
-    if existing:
-        swml_handler_info["id"] = existing.get("id")
-        address = existing.get("resource", {})
-        swml_handler_info["address_id"] = address.get("address_id")
-        swml_handler_info["address"] = address.get("display_name")
-        logger.info(f"Using existing SWML handler: {swml_handler_info}")
-        return
-
-    # Get basic auth credentials
-    auth_user = os.getenv("SWML_BASIC_AUTH_USER", "")
+    agent_name = os.getenv("AGENT_NAME", "cinebot")
+    proxy_url = os.getenv("SWML_PROXY_URL_BASE", os.getenv("APP_URL", ""))
+    auth_user = os.getenv("SWML_BASIC_AUTH_USER", "signalwire")
     auth_pass = os.getenv("SWML_BASIC_AUTH_PASSWORD", "")
 
-    handler_name = f"cinebot-{int(time.time())}"
-    payload = {
-        "name": handler_name,
-        "request_url": swml_url,
-    }
+    if not all([sw_host, project, token]):
+        logger.warning("SignalWire credentials not configured - skipping SWML handler setup")
+        return
 
-    if auth_user and auth_pass:
-        payload["request_user"] = auth_user
-        payload["request_password"] = auth_pass
+    if not proxy_url:
+        logger.warning("SWML_PROXY_URL_BASE/APP_URL not set - skipping SWML handler setup")
+        return
 
-    try:
-        resp = requests.post(
-            f"https://{sw_host}/api/fabric/resources/swml_handlers",
-            auth=(project_key, token),
-            json=payload,
-            timeout=10
-        )
-        if resp.status_code in (200, 201):
-            data = resp.json()
-            swml_handler_info["id"] = data.get("id")
-            address = data.get("resource", {})
-            swml_handler_info["address_id"] = address.get("address_id")
-            swml_handler_info["address"] = address.get("display_name")
-            logger.info(f"Created SWML handler: {swml_handler_info}")
-        else:
-            logger.error(f"Failed to create SWML handler: {resp.status_code} {resp.text}")
-    except Exception as e:
-        logger.error(f"Error creating SWML handler: {e}")
+    # Build SWML URL with basic auth credentials
+    if auth_user and auth_pass and "://" in proxy_url:
+        scheme, rest = proxy_url.split("://", 1)
+        swml_url = f"{scheme}://{auth_user}:{auth_pass}@{rest}/cinebot"
+    else:
+        swml_url = proxy_url + "/cinebot"
+
+    auth = (project, token)
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+
+    # Look for an existing handler by name
+    existing = find_existing_handler(sw_host, auth, agent_name)
+    if existing:
+        swml_handler_info["id"] = existing["id"]
+        swml_handler_info["address_id"] = existing["address_id"]
+        swml_handler_info["address"] = existing["address"]
+
+        # Always update the URL to ensure credentials are current
+        try:
+            update_resp = requests.put(
+                f"https://{sw_host}/api/fabric/resources/external_swml_handlers/{existing['id']}",
+                json={
+                    "primary_request_url": swml_url,
+                    "primary_request_method": "POST"
+                },
+                auth=auth,
+                headers=headers
+            )
+            update_resp.raise_for_status()
+            logger.info(f"Updated SWML handler: {existing['name']}")
+        except Exception as e:
+            logger.error(f"Failed to update handler URL: {e}")
+
+        logger.info(f"Call address: {existing['address']}")
+    else:
+        # Create a new external SWML handler with the agent name
+        try:
+            handler_resp = requests.post(
+                f"https://{sw_host}/api/fabric/resources/external_swml_handlers",
+                json={
+                    "name": agent_name,
+                    "used_for": "calling",
+                    "primary_request_url": swml_url,
+                    "primary_request_method": "POST"
+                },
+                auth=auth,
+                headers=headers
+            )
+            handler_resp.raise_for_status()
+            handler_id = handler_resp.json().get("id")
+            swml_handler_info["id"] = handler_id
+
+            # Get the address for this handler
+            addr_resp = requests.get(
+                f"https://{sw_host}/api/fabric/resources/external_swml_handlers/{handler_id}/addresses",
+                auth=auth,
+                headers={"Accept": "application/json"}
+            )
+            addr_resp.raise_for_status()
+            addresses = addr_resp.json().get("data", [])
+            if addresses:
+                swml_handler_info["address_id"] = addresses[0]["id"]
+                swml_handler_info["address"] = addresses[0]["channels"]["audio"]
+
+            logger.info(f"Created SWML handler '{agent_name}' with address: {swml_handler_info.get('address')}")
+        except Exception as e:
+            logger.error(f"Failed to create SWML handler: {e}")
 
 
 class MovieAgent(AgentBase):
@@ -2371,16 +2427,7 @@ def create_server(port=None):
     @server.app.on_event("startup")
     async def on_startup():
         """Register SWML handler on startup."""
-        proxy_url = os.getenv("SWML_PROXY_URL_BASE", "")
-        p = port or PORT
-
-        if proxy_url:
-            swml_url = f"{proxy_url}/cinebot"
-        else:
-            swml_url = f"http://localhost:{p}/cinebot"
-
-        logger.info(f"Registering SWML handler at: {swml_url}")
-        setup_swml_handler(swml_url)
+        setup_swml_handler()
 
     return server
 
