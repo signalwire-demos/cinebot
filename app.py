@@ -10,7 +10,8 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from signalwire_agents import AgentBase, SwaigFunctionResult
+from pathlib import Path
+from signalwire_agents import AgentBase, AgentServer, SwaigFunctionResult
 from tmdb_client import TMDBClient
 
 load_dotenv()
@@ -2279,157 +2280,115 @@ class MovieAgent(AgentBase):
                 pass
         
         return response
-    
-    def get_app(self):
-        """Create FastAPI app with SWML router and static files"""
-        app = FastAPI(title="CineBot Movie Assistant")
-        
-        # Add CORS middleware
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=["*"],
-            allow_credentials=True,
-            allow_methods=["*"],
-            allow_headers=["*"],
-        )
-        
-        # API endpoints
-        @app.get("/api/menu")
-        async def get_menu():
-            """Return available genres for the UI"""
-            try:
-                genres = self.tmdb.get_genres()
-                return JSONResponse(content=genres)
-            except:
-                return JSONResponse(content={"genres": []})
-        
-        @app.get("/api/watchlist")
-        async def get_watchlist():
-            """Return current watchlist"""
-            return JSONResponse(content={"watchlist": self.watchlist})
-
-        @app.get("/get_token")
-        async def get_token(request: Request):
-            """Generate a guest token for the web client."""
-            sw_host = get_signalwire_host()
-            project_key = os.getenv("SIGNALWIRE_PROJECT_KEY", "")
-            token = os.getenv("SIGNALWIRE_TOKEN", "")
-
-            if not all([sw_host, project_key, token]):
-                return JSONResponse(
-                    content={"error": "SignalWire credentials not configured"},
-                    status_code=500
-                )
-
-            if not swml_handler_info.get("address"):
-                return JSONResponse(
-                    content={"error": "SWML handler not registered yet"},
-                    status_code=500
-                )
-
-            try:
-                resp = requests.post(
-                    f"https://{sw_host}/api/fabric/subscribers/tokens",
-                    auth=(project_key, token),
-                    json={
-                        "reference": f"cinebot-guest-{int(time.time())}",
-                        "channels": {
-                            "audio": True,
-                            "video": True
-                        }
-                    },
-                    timeout=10
-                )
-                if resp.status_code in (200, 201):
-                    data = resp.json()
-                    return JSONResponse(content={
-                        "token": data.get("token"),
-                        "address": swml_handler_info["address"]
-                    })
-                else:
-                    logger.error(f"Token generation failed: {resp.status_code} {resp.text}")
-                    return JSONResponse(
-                        content={"error": f"Token generation failed: {resp.status_code}"},
-                        status_code=500
-                    )
-            except Exception as e:
-                logger.error(f"Error generating token: {e}")
-                return JSONResponse(
-                    content={"error": str(e)},
-                    status_code=500
-                )
-
-        @app.get("/get_resource_info")
-        async def get_resource_info():
-            """Return SWML handler info for debugging."""
-            return JSONResponse(content=swml_handler_info)
-
-        @app.on_event("startup")
-        async def on_startup():
-            """Register SWML handler on startup."""
-            # Determine the public URL for SWML
-            proxy_url = os.getenv("SWML_PROXY_URL_BASE", "")
-            port = int(os.getenv("PORT", 3030))
-
-            if proxy_url:
-                swml_url = f"{proxy_url}/swml"
-            else:
-                swml_url = f"http://localhost:{port}/swml"
-
-            logger.info(f"Registering SWML handler at: {swml_url}")
-            setup_swml_handler(swml_url)
-
-        # Create router for SWML endpoints
-        router = self.as_router()
-        
-        # Mount the SWML router at /swml
-        app.include_router(router, prefix=self.route)
-        
-        # Add explicit handler for /swml (without trailing slash) since SignalWire posts here
-        @app.post("/swml")
-        async def handle_swml(request: Request, response: Response):
-            """Handle POST to /swml - SignalWire's webhook endpoint"""
-            return await self._handle_root_request(request)
-        
-        # Optionally also handle GET for testing
-        @app.get("/swml")
-        async def handle_swml_get(request: Request, response: Response):
-            """Handle GET to /swml for testing"""
-            return await self._handle_root_request(request)
-        
-        # Serve static files (HTML, JS, CSS, videos)
-        app.mount("/", StaticFiles(directory="web", html=True), name="static")
-        
-        return app
 
 
-def main():
+HOST = "0.0.0.0"
+PORT = int(os.environ.get('PORT', 3030))
+
+
+def create_server(port=None):
+    """Create AgentServer with static file mounting and API endpoints."""
+    server = AgentServer(host=HOST, port=port or PORT)
     agent = MovieAgent()
-    app = agent.get_app()
-    
-    # Get auth credentials for display
-    username, password = agent.get_basic_auth_credentials()
-    
-    import uvicorn
-    port = int(os.getenv("PORT", 3030))
-    host = os.getenv("HOST", "0.0.0.0")
-    
-    print("=" * 60)
-    print("CineBot Movie Assistant")
-    print("=" * 60)
-    print(f"\nServer: http://{host}:{port}")
-    print(f"Basic Auth: {username}:{password}")
-    print("\nEndpoints:")
-    print(f"  Web UI:     http://{host}:{port}/")
-    print(f"  SWML:       http://{host}:{port}/swml")
-    print("=" * 60)
-    
-    uvicorn.run(
-        app,
-        host=host,
-        port=port
-    )
+    server.register(agent, "/cinebot")
+
+    # Serve static files
+    web_dir = Path(__file__).parent / "web"
+    if web_dir.exists():
+        server.serve_static_files(str(web_dir))
+
+    # Add API endpoints
+    @server.app.get("/api/menu")
+    async def get_menu():
+        """Return available genres for the UI"""
+        try:
+            genres = agent.tmdb.get_genres()
+            return JSONResponse(content=genres)
+        except:
+            return JSONResponse(content={"genres": []})
+
+    @server.app.get("/api/watchlist")
+    async def get_watchlist():
+        """Return current watchlist"""
+        return JSONResponse(content={"watchlist": agent.watchlist})
+
+    @server.app.get("/get_token")
+    async def get_token(request: Request):
+        """Generate a guest token for the web client."""
+        sw_host = get_signalwire_host()
+        project_key = os.getenv("SIGNALWIRE_PROJECT_KEY", "")
+        token = os.getenv("SIGNALWIRE_TOKEN", "")
+
+        if not all([sw_host, project_key, token]):
+            return JSONResponse(
+                content={"error": "SignalWire credentials not configured"},
+                status_code=500
+            )
+
+        if not swml_handler_info.get("address"):
+            return JSONResponse(
+                content={"error": "SWML handler not registered yet"},
+                status_code=500
+            )
+
+        try:
+            resp = requests.post(
+                f"https://{sw_host}/api/fabric/subscribers/tokens",
+                auth=(project_key, token),
+                json={
+                    "reference": f"cinebot-guest-{int(time.time())}",
+                    "channels": {
+                        "audio": True,
+                        "video": True
+                    }
+                },
+                timeout=10
+            )
+            if resp.status_code in (200, 201):
+                data = resp.json()
+                return JSONResponse(content={
+                    "token": data.get("token"),
+                    "address": swml_handler_info["address"]
+                })
+            else:
+                logger.error(f"Token generation failed: {resp.status_code} {resp.text}")
+                return JSONResponse(
+                    content={"error": f"Token generation failed: {resp.status_code}"},
+                    status_code=500
+                )
+        except Exception as e:
+            logger.error(f"Error generating token: {e}")
+            return JSONResponse(
+                content={"error": str(e)},
+                status_code=500
+            )
+
+    @server.app.get("/get_resource_info")
+    async def get_resource_info():
+        """Return SWML handler info for debugging."""
+        return JSONResponse(content=swml_handler_info)
+
+    @server.app.on_event("startup")
+    async def on_startup():
+        """Register SWML handler on startup."""
+        proxy_url = os.getenv("SWML_PROXY_URL_BASE", "")
+        p = port or PORT
+
+        if proxy_url:
+            swml_url = f"{proxy_url}/cinebot"
+        else:
+            swml_url = f"http://localhost:{p}/cinebot"
+
+        logger.info(f"Registering SWML handler at: {swml_url}")
+        setup_swml_handler(swml_url)
+
+    return server
+
+
+# Create server and expose app for gunicorn
+server = create_server()
+app = server.app
 
 
 if __name__ == "__main__":
-    main()
+    server.run()
