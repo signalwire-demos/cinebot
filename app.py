@@ -178,7 +178,7 @@ class MovieAgent(AgentBase):
     def __init__(self):
         super().__init__(
             name="CineBot Movie Assistant",
-            route="/swml"  # SWML endpoint path
+            route="/cinebot"  # Must match server.register() route
         )
         
         # Initialize TMDB client
@@ -2302,17 +2302,17 @@ class MovieAgent(AgentBase):
     
     async def _handle_root_request(self, request):
         """Handle root request and update video URLs dynamically"""
-        # Get the host and protocol from request headers
-        host = request.headers.get('host')
-        protocol = request.headers.get('x-forwarded-proto', 'https')
-        base_url = f"{protocol}://{host}"
-        
+        # Get the base URL using SDK's auto-detection from X-Forwarded headers
+        # Falls back to SWML_PROXY_URL_BASE or APP_URL if needed
+        base_url = self.get_full_url(include_auth=False)
+
         # Update video URLs with full paths
-        self.set_param("video_idle_file", f"{base_url}/cinebot_idle.mp4")
-        self.set_param("video_talking_file", f"{base_url}/cinebot_talking.mp4")
-        
-        # Set background image URL
-        self.set_param("background_image", f"{base_url}/background.png")
+        if base_url:
+            self.set_param("video_idle_file", f"{base_url}/cinebot_idle.mp4")
+            self.set_param("video_talking_file", f"{base_url}/cinebot_talking.mp4")
+
+            # Set background image URL
+            self.set_param("background_image", f"{base_url}/background.png")
 
         # Optional post-prompt URL from environment
         post_prompt_url = os.environ.get("POST_PROMPT_URL")
@@ -2322,9 +2322,9 @@ class MovieAgent(AgentBase):
 
         # Call the parent implementation
         response = await super()._handle_root_request(request)
-        
+
         # Add initial background display event
-        if hasattr(response, 'body'):
+        if base_url and hasattr(response, 'body'):
             import json
             try:
                 body = json.loads(response.body)
@@ -2343,7 +2343,7 @@ class MovieAgent(AgentBase):
                 response.body = json.dumps(body)
             except:
                 pass
-        
+
         return response
 
 
