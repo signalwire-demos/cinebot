@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CineBot - Your AI Movie Companion</title>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="/favicon.png">
+    <link rel="apple-touch-icon" href="/favicon.png">
+
+    <!-- OpenGraph Meta Tags -->
+    <meta property="og:title" content="CineBot - Your AI Movie Companion">
+    <meta property="og:description" content="Discover movies and TV shows with CineBot, your personal AI entertainment assistant. Get recommendations, explore cast details, and find where to watch.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://cinebot.ai">
+    <meta property="og:image" content="/og-image.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+
+    <!-- Twitter Card Meta Tags -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="CineBot - Your AI Movie Companion">
+    <meta name="twitter:description" content="Discover movies and TV shows with CineBot, your personal AI entertainment assistant.">
+    <meta name="twitter:image" content="/og-image.png">
+
+    <!-- Additional Meta Tags -->
+    <meta name="description" content="CineBot is your AI-powered movie and TV show companion. Get personalized recommendations, explore cast details, and find streaming options.">
+    <meta name="keywords" content="movies, TV shows, recommendations, AI assistant, streaming, entertainment">
+    <meta name="author" content="SignalWire">
+
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!-- Old Hollywood fonts: Cinzel Decorative for Art Deco headers, Cormorant for elegant body -->
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Theater Curtain Accents -->
+    <div class="curtain-left"></div>
+    <div class="curtain-right"></div>
+
+    <!-- Main Container -->
+    <div id="appContainer" class="app-container">
+
+        <!-- Old Hollywood Header with Marquee -->
+        <header class="theater-header">
+            <div class="marquee-lights top-lights">
+                <span></span><span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span><span></span>
+            </div>
+
+            <div class="header-content">
+                <div class="art-deco-border top"></div>
+                <h1 class="theater-title">
+                    <span class="star-accent">★</span>
+                    CINEBOT
+                    <span class="star-accent">★</span>
+                </h1>
+                <p class="theater-tagline">Your AI Movie Companion</p>
+                <div class="art-deco-border bottom"></div>
+            </div>
+
+            <!-- GitHub Link - Vintage Ticket Style -->
+            <a href="https://github.com/signalwire-demos/cinebot" target="_blank" class="github-ticket" title="View on GitHub">
+                <div class="ticket-stub"></div>
+                <div class="ticket-main">
+                    <svg class="github-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                    </svg>
+                    <span>GitHub</span>
+                </div>
+            </a>
+
+            <div class="marquee-lights bottom-lights">
+                <span></span><span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span><span></span>
+            </div>
+        </header>
+
+        <!-- Agent Video Container - Centered by default, moves to corner when content shown -->
+        <div id="agentContainer" class="agent-container centered">
+            <div class="agent-video-wrapper">
+                <!-- Ornate Gold Frame -->
+                <div class="ornate-frame">
+                    <div class="frame-corner top-left"></div>
+                    <div class="frame-corner top-right"></div>
+                    <div class="frame-corner bottom-left"></div>
+                    <div class="frame-corner bottom-right"></div>
+                </div>
+                <div id="videoContainer" class="video-container">
+                    <!-- Video element added dynamically -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Connection Controls - Bottom of page -->
+        <div class="connection-controls-container">
+            <button id="connectBtn" class="control-btn connect-btn vintage-btn">
+                <span class="btn-film-hole left"></span>
+                <svg viewBox="0 0 24 24" width="18" height="18">
+                    <path d="M8 5v14l11-7z" fill="currentColor"/>
+                </svg>
+                <span>Connect to CineBot</span>
+                <span class="btn-film-hole right"></span>
+            </button>
+            <button id="hangupBtn" class="control-btn hangup-btn vintage-btn" style="display: none;">
+                <span class="btn-film-hole left"></span>
+                <svg viewBox="0 0 24 24" width="18" height="18">
+                    <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.68.28-.3 0-.55-.13-.74-.33l-3.46-3.45c-.17-.17-.26-.39-.26-.63 0-.24.09-.46.26-.63C3.15 7.05 7.46 5 12 5s8.85 2.05 12.7 5.86c.17.17.26.39.26.63 0 .24-.09.46-.26.63l-3.46 3.45c-.19.2-.45.33-.74.33-.25 0-.5-.1-.68-.28-.79-.73-1.68-1.36-2.66-1.85-.33-.16-.56-.51-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z" fill="currentColor"/>
+                </svg>
+                <span>Disconnect</span>
+                <span class="btn-film-hole right"></span>
+            </button>
+
+            <!-- Connection Status -->
+            <div id="connectionStatus" class="connection-status" style="display: none;">
+                <div class="status-pulse"></div>
+                <span id="statusText"></span>
+            </div>
+        </div>
+
+        <!-- Movie Display Section - Hidden by default -->
+        <div id="movieDisplay" class="movie-display hidden">
+            <!-- Background with movie backdrop -->
+            <div class="movie-backdrop-container">
+                <img id="movieBackdrop" class="movie-backdrop" src="" alt="">
+                <div class="backdrop-gradient"></div>
+            </div>
+
+            <!-- Main Movie Content -->
+            <div class="movie-content">
+                <div class="movie-primary">
+                    <img id="moviePoster" class="movie-poster" src="" alt="">
+
+                    <div class="movie-info">
+                        <h1 id="movieTitle" class="movie-title"></h1>
+                        <p id="movieTagline" class="movie-tagline"></p>
+
+                        <div class="movie-meta">
+                            <span class="movie-year" id="movieYear"></span>
+                            <span class="movie-runtime" id="movieRuntime"></span>
+                            <span class="movie-rating">
+                                <svg class="star-icon" viewBox="0 0 24 24">
+                                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                                </svg>
+                                <span id="movieRating"></span>
+                            </span>
+                        </div>
+
+                        <div class="movie-genres" id="movieGenres"></div>
+
+                        <p id="movieOverview" class="movie-overview"></p>
+
+                        <!-- Movie actions info -->
+                        <div class="movie-actions-info">
+                            <p class="action-hint">Ask me to play the trailer or show cast details!</p>
+                        </div>
+
+                        <!-- Watch Providers -->
+                        <div class="watch-providers hidden" id="watchProviders">
+                            <h3>Where to Watch</h3>
+                            <div class="providers-grid" id="providersGrid"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Cast Section -->
+                <div class="cast-section hidden" id="castSection">
+                    <h2>Cast & Crew</h2>
+                    <div class="cast-carousel" id="castCarousel"></div>
+                </div>
+
+                <!-- Similar Movies -->
+                <div class="similar-section hidden" id="similarSection">
+                    <h2>You Might Also Like</h2>
+                    <div class="movies-carousel" id="similarCarousel"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Search Results Grid - Hidden by default -->
+        <div id="searchResults" class="search-results hidden">
+            <h2 id="searchTitle" class="results-title">Search Results</h2>
+            <div class="movies-grid" id="moviesGrid"></div>
+        </div>
+
+        <!-- Trending Movies - Hidden by default -->
+        <div id="trendingSection" class="trending-section hidden">
+            <h2 class="trending-title">Trending This Week</h2>
+            <div class="trending-carousel" id="trendingCarousel"></div>
+        </div>
+
+        <!-- Person Details - Hidden by default -->
+        <div id="personDisplay" class="person-display hidden">
+            <div class="person-backdrop"></div>
+            <div class="person-content">
+                <img id="personPhoto" class="person-photo" src="" alt="">
+                <div class="person-info">
+                    <h1 id="personName" class="person-name"></h1>
+                    <p id="personDepartment" class="person-department"></p>
+                    <p id="personBirthday" class="person-birthday"></p>
+                    <p id="personBio" class="person-biography"></p>
+
+                    <div class="filmography-section">
+                        <h2>Known For</h2>
+                        <div class="filmography-carousel" id="filmographyCarousel"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Trailer Modal -->
+        <div id="trailerModal" class="trailer-modal hidden">
+            <div class="modal-content">
+                <button class="close-btn" id="closeTrailerBtn">&times;</button>
+                <div class="trailer-wrapper">
+                    <iframe id="trailerFrame" src="" frameborder="0" allowfullscreen></iframe>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading State -->
+        <div id="loadingState" class="loading-state hidden">
+            <div class="loading-spinner"></div>
+        </div>
+
+    </div>
+
+    <!-- SignalWire SDK from CDN -->
+    <script src="https://cdn.signalwire.com/@signalwire/client"></script>
+    <!-- Load app -->
+    <script src="app.js"></script>
+</body>
+</html>
