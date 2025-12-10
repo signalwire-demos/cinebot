@@ -581,7 +581,8 @@ body {
 
 .agent-container.corner {
     top: 20px;
-    right: 20px;
+    left: 20px;
+    right: auto;
     width: 240px;
     aspect-ratio: 1620 / 1080;
     transform: none;
