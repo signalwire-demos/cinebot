@@ -204,11 +204,10 @@ class MovieAgent(AgentBase):
     
     def _setup_agent(self):
         """Configure agent personality and conversation contexts"""
-        
-        # Set avatar videos (will be dynamically updated with full URLs)
-        self.set_param("video_idle_file", "/cinebot_idle.mp4")
-        self.set_param("video_talking_file", "/cinebot_talking.mp4")
-        
+
+        # Note: video_idle_file and video_talking_file are set dynamically
+        # in on_swml_request() with the full URL from get_full_url()
+
         # Agent personality
         self.set_param("voice_id", "en-US-Standard-J")
         self.set_param("voice_pitch", "-2st")
@@ -2300,51 +2299,23 @@ class MovieAgent(AgentBase):
                     response="I couldn't fetch trending TV shows. Please try again."
                 )
     
-    async def _handle_root_request(self, request):
-        """Handle root request and update video URLs dynamically"""
+    def on_swml_request(self, request_data, callback_path, request=None):
+        """Handle incoming SWML requests and configure the AI agent"""
         # Get the base URL using SDK's auto-detection from X-Forwarded headers
         # Falls back to SWML_PROXY_URL_BASE or APP_URL if needed
         base_url = self.get_full_url(include_auth=False)
 
-        # Update video URLs with full paths
+        # Set video URLs using set_param (this is what makes video work!)
         if base_url:
             self.set_param("video_idle_file", f"{base_url}/cinebot_idle.mp4")
             self.set_param("video_talking_file", f"{base_url}/cinebot_talking.mp4")
-
-            # Set background image URL
-            self.set_param("background_image", f"{base_url}/background.png")
+            print(f"Set video URLs to use host: {base_url}")
 
         # Optional post-prompt URL from environment
         post_prompt_url = os.environ.get("POST_PROMPT_URL")
         if post_prompt_url:
             self.set_post_prompt("Summarize the conversation including movies/shows discussed, user preferences, and any recommendations made.")
             self.set_post_prompt_url(post_prompt_url)
-
-        # Call the parent implementation
-        response = await super()._handle_root_request(request)
-
-        # Add initial background display event
-        if base_url and hasattr(response, 'body'):
-            import json
-            try:
-                body = json.loads(response.body)
-                # Add initial user event to show background
-                if 'sections' not in body:
-                    body['sections'] = []
-                body['sections'].append({
-                    "type": "user_event",
-                    "event": {
-                        "type": "initial_display",
-                        "data": {
-                            "background_image": f"{base_url}/background.png"
-                        }
-                    }
-                })
-                response.body = json.dumps(body)
-            except:
-                pass
-
-        return response
 
 
 HOST = "0.0.0.0"
