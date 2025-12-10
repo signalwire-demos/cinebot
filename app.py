@@ -2368,30 +2368,26 @@ def create_server(port=None):
             )
 
         try:
+            # Create a guest token with access to this address (24 hour expiry)
+            expire_at = int(time.time()) + 3600 * 24
+
             resp = requests.post(
-                f"https://{sw_host}/api/fabric/subscribers/tokens",
+                f"https://{sw_host}/api/fabric/guests/tokens",
                 auth=(project_key, token),
+                headers={"Content-Type": "application/json", "Accept": "application/json"},
                 json={
-                    "reference": f"cinebot-guest-{int(time.time())}",
-                    "channels": {
-                        "audio": True,
-                        "video": True
-                    }
+                    "allowed_addresses": [swml_handler_info["address_id"]],
+                    "expire_at": expire_at
                 },
                 timeout=10
             )
-            if resp.status_code in (200, 201):
-                data = resp.json()
-                return JSONResponse(content={
-                    "token": data.get("token"),
-                    "address": swml_handler_info["address"]
-                })
-            else:
-                logger.error(f"Token generation failed: {resp.status_code} {resp.text}")
-                return JSONResponse(
-                    content={"error": f"Token generation failed: {resp.status_code}"},
-                    status_code=500
-                )
+            resp.raise_for_status()
+            guest_token = resp.json().get("token", "")
+
+            return JSONResponse(content={
+                "token": guest_token,
+                "address": swml_handler_info["address"]
+            })
         except Exception as e:
             logger.error(f"Error generating token: {e}")
             return JSONResponse(
