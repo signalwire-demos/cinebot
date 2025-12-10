@@ -2349,51 +2349,47 @@ def create_server(port=None):
         return JSONResponse(content={"watchlist": agent.watchlist})
 
     @server.app.get("/get_token")
-    async def get_token(request: Request):
-        """Generate a guest token for the web client."""
+    def get_token():
+        """Get a guest token for the web client to call the agent."""
         sw_host = get_signalwire_host()
-        project_key = os.getenv("SIGNALWIRE_PROJECT_ID", "")
+        project = os.getenv("SIGNALWIRE_PROJECT_ID", "")
         token = os.getenv("SIGNALWIRE_TOKEN", "")
 
-        if not all([sw_host, project_key, token]):
-            return JSONResponse(
-                content={"error": "SignalWire credentials not configured"},
-                status_code=500
-            )
+        if not all([sw_host, project, token]):
+            return JSONResponse({"error": "SignalWire credentials not configured"}, status_code=500)
 
-        if not swml_handler_info.get("address"):
-            return JSONResponse(
-                content={"error": "SWML handler not registered yet"},
-                status_code=500
-            )
+        if not swml_handler_info["address_id"]:
+            return JSONResponse({"error": "SWML handler not configured - check startup logs"}, status_code=500)
+
+        auth = (project, token)
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
 
         try:
-            # Create a guest token with access to this address (24 hour expiry)
-            expire_at = int(time.time()) + 3600 * 24
+            # Create a guest token with access to this address
+            expire_at = int(time.time()) + 3600 * 24  # 24 hours
 
-            resp = requests.post(
+            guest_resp = requests.post(
                 f"https://{sw_host}/api/fabric/guests/tokens",
-                auth=(project_key, token),
-                headers={"Content-Type": "application/json", "Accept": "application/json"},
                 json={
                     "allowed_addresses": [swml_handler_info["address_id"]],
                     "expire_at": expire_at
                 },
-                timeout=10
+                auth=auth,
+                headers=headers
             )
-            resp.raise_for_status()
-            guest_token = resp.json().get("token", "")
+            guest_resp.raise_for_status()
+            guest_token = guest_resp.json().get("token", "")
 
-            return JSONResponse(content={
+            return {
                 "token": guest_token,
                 "address": swml_handler_info["address"]
-            })
-        except Exception as e:
-            logger.error(f"Error generating token: {e}")
-            return JSONResponse(
-                content={"error": str(e)},
-                status_code=500
-            )
+            }
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Token request failed: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                logger.error(f"Response: {e.response.text}")
+            return JSONResponse({"error": str(e)}, status_code=500)
 
     @server.app.get("/get_resource_info")
     async def get_resource_info():
