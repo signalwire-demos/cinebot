@@ -187,7 +187,17 @@ class TMDBClient:
                 }
                 for movie in info["similar"].get("results", [])[:6]
             ]
-        
+
+        # Extract movie logo from images (for title display)
+        if "images" in info:
+            logos = info["images"].get("logos", [])
+            # Prefer English logos, then any logo
+            english_logos = [l for l in logos if l.get("iso_639_1") == "en"]
+            if english_logos:
+                details["logo_path"] = self.get_poster_url(english_logos[0].get("file_path", ""), "w500")
+            elif logos:
+                details["logo_path"] = self.get_poster_url(logos[0].get("file_path", ""), "w500")
+
         self._set_cache(cache_key, details)
         return details
     
@@ -439,7 +449,7 @@ class TMDBClient:
             return cached
         
         tv = tmdb.TV(tv_id)
-        info = tv.info(append_to_response="credits,videos,similar,content_ratings,watch/providers", language=language)
+        info = tv.info(append_to_response="credits,videos,similar,content_ratings,watch/providers,images", language=language)
         
         details = {
             "id": info["id"],
@@ -570,10 +580,20 @@ class TMDBClient:
                             seen_providers.add(provider["provider_id"])
             
             details["watch_providers"]["providers"].sort(key=lambda x: x["display_priority"])
-        
+
+        # Extract TV show logo from images (for title display)
+        if "images" in info:
+            logos = info["images"].get("logos", [])
+            # Prefer English logos, then any logo
+            english_logos = [l for l in logos if l.get("iso_639_1") == "en"]
+            if english_logos:
+                details["logo_path"] = self.get_poster_url(english_logos[0].get("file_path", ""), "w500")
+            elif logos:
+                details["logo_path"] = self.get_poster_url(logos[0].get("file_path", ""), "w500")
+
         self._set_cache(cache_key, details)
         return details
-    
+
     def get_tv_season(self, tv_id: int, season_number: int, language: str = "en-US") -> Dict[str, Any]:
         """Get detailed information about a TV season"""
         cache_key = self._get_cache_key("tv_season", tv_id=tv_id, season_number=season_number, language=language)

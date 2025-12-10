@@ -530,8 +530,12 @@ function displayMovieDetails(details) {
         elements.moviePoster.src = ''; // Let CSS placeholder show
     }
     
-    // Set movie info
-    elements.movieTitle.textContent = details.title;
+    // Set movie info - use logo image if available, otherwise text
+    if (details.logo_path) {
+        elements.movieTitle.innerHTML = `<img src="${details.logo_path}" alt="${details.title}" class="movie-logo">`;
+    } else {
+        elements.movieTitle.textContent = details.title;
+    }
     elements.movieTagline.textContent = details.tagline || '';
     
     // Add content rating badge before year/runtime
@@ -778,7 +782,12 @@ function displayTVDetails(details) {
     }
     
     // Set TV show info (reusing movie elements since layout is similar)
-    elements.movieTitle.textContent = details.name || '';
+    // Use logo image if available, otherwise text
+    if (details.logo_path) {
+        elements.movieTitle.innerHTML = `<img src="${details.logo_path}" alt="${details.name}" class="movie-logo">`;
+    } else {
+        elements.movieTitle.textContent = details.name || '';
+    }
     elements.movieTagline.textContent = details.tagline || '';
     
     // Format TV-specific metadata
