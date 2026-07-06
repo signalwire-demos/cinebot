@@ -41,6 +41,10 @@
     },
     "POST_PROMPT_URL": {
       "description": "Optional URL for post-prompt webhook to receive conversation summaries"
+    },
+    "REDIS_URL": {
+      "description": "Optional Redis URL for TMDB response caching",
+      "required": false
     }
   },
   "formation": {

@@ -5,7 +5,10 @@ let currentDestination = null;
 
 // Global state
 let client = null;
-let roomSession = null;
+let call = null;
+let callSubscriptions = []; // every RxJS subscription for the session, torn down on disconnect
+let remoteVideo = null;
+let lastTrackSignature = '';
 let isContentDisplayed = false;
 
 // UI Elements - will be initialized after DOM loads
@@ -128,6 +131,24 @@ function resetConnectButton() {
     `;
 }
 
+// Fetch a guest token (+ destination address) from the backend.
+// Throws with a useful message on any error shape, including the legacy
+// tuple bug (an array body returned with HTTP 200).
+async function fetchGuestToken() {
+    const resp = await fetch('/get_token');
+    let data = await resp.json();
+    if (Array.isArray(data)) {
+        data = data[0] || {};
+    }
+    if (!resp.ok || data.error) {
+        throw new Error(data.error || `Token request failed (HTTP ${resp.status})`);
+    }
+    if (!data.token || !data.address) {
+        throw new Error('Token response missing token/address');
+    }
+    return data;
+}
+
 // Connection Functions
 async function connect() {
     try {
@@ -137,57 +158,89 @@ async function connect() {
         if (textSpan) textSpan.textContent = 'Connecting...';
         updateStatus('Getting token...', 'connecting');
 
-        // Fetch token and destination dynamically from the server
-        console.log('Fetching token from server...');
-        const tokenResp = await fetch('/get_token');
-        const tokenData = await tokenResp.json();
-
-        if (tokenData.error) {
-            throw new Error(tokenData.error);
+        // The v4 CDN bundle exposes the SignalWire class on the SignalWire namespace
+        if (!window.SignalWire || typeof window.SignalWire.SignalWire !== 'function') {
+            console.error('SignalWire SDK structure:', window.SignalWire);
+            throw new Error('SignalWire.SignalWire constructor not found');
         }
 
+        // Fetch the first token up front so a backend problem fails fast
+        // (and gives us the destination address to dial)
+        const tokenData = await fetchGuestToken();
         currentToken = tokenData.token;
         currentDestination = tokenData.address;
-        console.log('Got token, destination:', currentDestination);
+        console.log('Token received, destination:', currentDestination);
 
         updateStatus('Connecting...', 'connecting');
 
-        // Check if SignalWire SDK is loaded
-        if (window.SignalWire && typeof window.SignalWire.SignalWire === 'function') {
-            console.log('SignalWire SDK loaded correctly');
-        } else {
-            console.error('SignalWire SDK structure:', window.SignalWire);
-            throw new Error('SignalWire.SignalWire function not found');
-        }
-
+        // v4 client takes a credential provider; the SDK calls authenticate()
+        // whenever it needs a (fresh) token. Guest tokens from /get_token work
+        // as bearer credentials. Construction begins connecting immediately.
         console.log('Initializing SignalWire client...');
-
-        // Initialize SignalWire client
-        client = await window.SignalWire.SignalWire({
-            token: currentToken,
-            logLevel: 'debug'
+        let usedInitialToken = false;
+        client = new window.SignalWire.SignalWire({
+            authenticate: async () => {
+                if (!usedInitialToken) {
+                    usedInitialToken = true;
+                    return { token: currentToken };
+                }
+                // SDK wants a fresh token (expiry/reconnect) - mint another
+                const data = await fetchGuestToken();
+                currentToken = data.token;
+                return { token: data.token };
+            }
         });
 
-        console.log('Client initialized, subscribing to events...');
+        // Surface SDK errors/warnings (replaces the old logLevel: 'debug')
+        callSubscriptions.push(client.errors$.subscribe((err) => {
+            console.error('SignalWire client error:', err);
+        }));
+        callSubscriptions.push(client.warnings$.subscribe((warn) => {
+            console.warn('SignalWire client warning:', warn?.code, warn?.message);
+        }));
 
-        // Subscribe to client events
-        client.on('user_event', (params) => {
-            console.log('User event from client:', params);
-            handleUserEvent(params);
+        // Wait until the client session is up before dialing.
+        // isConnected$ replays its current value synchronously on subscribe,
+        // so resolve via a flag and defer the unsubscribe. Time out rather
+        // than hang if the connection never comes up (bad creds never error).
+        await new Promise((resolve, reject) => {
+            let settled = false;
+            const timer = setTimeout(() => {
+                if (!settled) {
+                    settled = true;
+                    reject(new Error('Timed out connecting to SignalWire'));
+                }
+            }, 15000);
+            const sub = client.isConnected$.subscribe({
+                next: (connected) => {
+                    if (connected && !settled) {
+                        settled = true;
+                        clearTimeout(timer);
+                        setTimeout(() => sub.unsubscribe(), 0);
+                        resolve();
+                    }
+                },
+                error: (err) => {
+                    if (!settled) {
+                        settled = true;
+                        clearTimeout(timer);
+                        reject(err);
+                    }
+                }
+            });
         });
 
-        console.log('Dialing to agent...');
+        console.log('Client connected, dialing', currentDestination);
 
-        // Get video container for remote video
-        const videoContainer = document.getElementById('videoContainer');
-
-        // Connect to the agent
-        roomSession = await client.dial({
-            to: currentDestination,
-            rootElement: videoContainer,
+        // Dial the agent address. Video is receive-only: the avatar comes
+        // from the platform, the user only sends audio (v4 replacement for
+        // negotiateVideo, and no camera permission prompt). dial() connects -
+        // there is no start() step.
+        call = await client.dial(currentDestination, {
             audio: true,
-            video: true,
-            negotiateVideo: true,
+            video: false,
+            receiveAudio: true,
+            receiveVideo: true,
             userVariables: {
                 userName: 'CineBot User',
                 interface: 'web-ui',
@@ -195,95 +248,140 @@ async function connect() {
                 extension: 'cinebot'
             }
         });
-        
-        console.log('Room session created:', roomSession);
-        
-        // Subscribe to room session events - match Holy Guacamole exactly
-        roomSession.on('call.joined', async (params) => {
-            console.log('Call joined:', params);
-            handleConnected();
-        });
-        
-        roomSession.on('call.state', (params) => {
-            console.log('Call state:', params);
-            if (params && params.state === 'active') {
-                handleConnected();
+
+        console.log('Call created:', call);
+
+        // Render the remote (avatar) stream in our own video element
+        setupRemoteMedia(call);
+
+        // User events from the AI drive the movie UI. Payload arrives in
+        // evt.params; handleUserEvent unwraps both emit shapes.
+        callSubscriptions.push(call.subscribe('user_event').subscribe((evt) => {
+            console.log('User event:', evt);
+            handleUserEvent(evt?.params ?? evt);
+        }));
+
+        // Call lifecycle - one status$ stream replaces the old event zoo.
+        // Deduplicate teardown: status can emit multiple terminal values and
+        // the SDK completes subjects on destroy (sometimes without a
+        // terminal status first).
+        let sawConnected = false;
+        let disconnectTriggered = false;
+
+        const handleDisconnectEvent = (reason) => {
+            console.log(`Call ended (${reason})`);
+            if (disconnectTriggered) {
+                return;
             }
-        });
-        
-        roomSession.on('user_event', (params) => {
-            console.log('User event from room:', params);
-            handleUserEvent(params);
-        });
-        
-        roomSession.on('room.started', (params) => {
-            console.log('Room started:', params);
-        });
-        
-        roomSession.on('destroy', (params) => {
-            console.log('Room session destroyed:', params);
-            handleDisconnect();
-        });
-        
-        roomSession.on('disconnected', (params) => {
-            console.log('Disconnected:', params);
-            handleDisconnect();
-        });
-        
-        roomSession.on('room.left', (params) => {
-            console.log('Room left:', params);
-            handleDisconnect();
-        });
-        
-        roomSession.on('call.ended', (params) => {
-            console.log('Call ended:', params);
-            handleDisconnect();
-        });
-        
-        // Start the call - THIS IS CRITICAL!
-        await roomSession.start();
-        console.log('Call started');
-        
+            disconnectTriggered = true;
+            // Use setTimeout to ensure we don't interrupt the event flow
+            setTimeout(() => disconnect(), 100);
+        };
+
+        callSubscriptions.push(call.status$.subscribe({
+            next: (status) => {
+                console.log('Call status:', status);
+                if (status === 'connected' && !sawConnected) {
+                    sawConnected = true;
+                    handleConnected();
+                } else if (status === 'disconnected' || status === 'failed' || status === 'destroyed') {
+                    handleDisconnectEvent(status);
+                }
+            },
+            complete: () => handleDisconnectEvent('complete'),
+            error: (err) => {
+                console.error('Call status error:', err);
+                handleDisconnectEvent('error');
+            }
+        }));
+
     } catch (error) {
         console.error('Failed to connect:', error);
         console.error('Error details:', error.message, error.stack);
-        
+
         // Handle specific permission errors
         let errorMessage = 'Connection Failed';
-        if (error.name === 'NotAllowedError' || error.message.includes('Permission denied')) {
-            errorMessage = 'Microphone/Camera access denied. Please allow permissions and try again.';
-        } else if (error.name === 'NotFoundError' || error.message.includes('not found')) {
-            errorMessage = 'No microphone/camera found. Please check your devices.';
+        if (error.name === 'NotAllowedError' || (error.message && error.message.includes('Permission denied'))) {
+            errorMessage = 'Microphone access denied. Please allow permissions and try again.';
+        } else if (error.name === 'NotFoundError' || (error.message && error.message.includes('not found'))) {
+            errorMessage = 'No microphone found. Please check your devices.';
         } else if (error.message) {
             errorMessage = `Connection Failed: ${error.message}`;
         }
-        
-        updateStatus(errorMessage, 'error');
-        resetConnectButton();
 
-        // Reset state
-        client = null;
-        roomSession = null;
+        disconnect();
+        updateStatus(errorMessage, 'error');
     }
 }
 
-async function disconnect() {
+// Attach the remote stream (avatar video + audio) to a <video> element we
+// own inside #videoContainer. v4 has no rootElement - media is rendered by
+// the app. The SDK re-emits the same MediaStream object as tracks arrive,
+// so re-attach whenever the track set changes, not just on a new stream.
+// The element stays unmuted: it carries the remote audio, and connect is
+// user-gesture-initiated so autoplay with sound is allowed.
+function setupRemoteMedia(activeCall) {
+    const videoContainer = document.getElementById('videoContainer');
+
+    remoteVideo = document.createElement('video');
+    remoteVideo.id = 'remoteVideo';
+    remoteVideo.autoplay = true;
+    remoteVideo.playsInline = true;
+    remoteVideo.setAttribute('playsinline', '');
+    videoContainer.appendChild(remoteVideo);
+
+    lastTrackSignature = '';
+    callSubscriptions.push(activeCall.remoteStream$.subscribe((stream) => {
+        if (!stream || !remoteVideo) {
+            return;
+        }
+        const signature = stream.getTracks().map((t) => `${t.kind}:${t.id}`).sort().join('|');
+        if (remoteVideo.srcObject === stream && signature === lastTrackSignature) {
+            return;
+        }
+        lastTrackSignature = signature;
+        console.log('Attaching remote stream, tracks:', signature);
+        remoteVideo.srcObject = stream;
+        remoteVideo.play().catch((e) => console.warn('Video play() blocked:', e));
+    }));
+}
+
+function disconnect() {
     console.log('Disconnecting...');
-    
-    try {
-        if (roomSession) {
-            await roomSession.hangup();
-            roomSession = null;
+
+    // Drop all RxJS subscriptions from this session
+    callSubscriptions.forEach((sub) => {
+        try {
+            sub.unsubscribe();
+        } catch (e) {
+            // already closed
         }
-        
-        if (client) {
-            await client.disconnect();
-            client = null;
+    });
+    callSubscriptions = [];
+
+    call = null;
+
+    // Disconnect the client (closes the socket and releases media)
+    if (client) {
+        try {
+            client.disconnect();
+        } catch (e) {
+            console.log('Client disconnect error:', e);
         }
-    } catch (error) {
-        console.error('Error during disconnect:', error);
+        client = null;
     }
-    
+
+    // Stop remote media and remove our video element
+    if (remoteVideo) {
+        if (remoteVideo.srcObject) {
+            remoteVideo.srcObject.getTracks().forEach((track) => track.stop());
+            remoteVideo.srcObject = null;
+        }
+        remoteVideo.remove();
+        remoteVideo = null;
+    }
+    lastTrackSignature = '';
+
     handleDisconnect();
 }
 
@@ -318,40 +416,28 @@ function handleConnected() {
 
 function handleDisconnect() {
     console.log('Disconnected');
-    
-    // Prevent multiple disconnect calls
-    if (!roomSession && !client) {
-        return;
-    }
-    
+
     // Hide status indicator when disconnected
     document.getElementById('connectionStatus').style.display = 'none';
-    
+
     // Clear any displayed content
     clearAllDisplays();
-    
+
     // Force move agent back to center on disconnect
     moveAgentToCenter(true);
-    
+
     // Show welcome screen
     if (elements.welcomeScreen) {
         elements.welcomeScreen.style.display = 'flex';
     }
-    
+
     // Update buttons and restore connect button
     elements.connectBtn.style.display = 'flex';
     resetConnectButton();
     elements.hangupBtn.style.display = 'none';
-    
-    // Quick actions removed
-    
-    // Hide voice indicator
-    // Voice indicator removed
-    
+
     // Reset state
-    roomSession = null;
-    client = null;
-    isContentDisplayed = false; // Reset the flag
+    isContentDisplayed = false;
 }
 
 // Event Handler

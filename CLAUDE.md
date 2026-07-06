@@ -4,13 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-CineBot is a voice-driven movie/TV discovery assistant powered by SignalWire AI Agents and The Movie Database (TMDB). Users interact via WebRTC video/audio to have natural conversations about movies, TV shows, and actors.
+CineBot is a voice-driven movie/TV discovery assistant powered by the SignalWire Python SDK (`signalwire-sdk`, import name `signalwire`) and The Movie Database (TMDB). Users interact via WebRTC video/audio (browser SDK `@signalwire/js` v4) to have natural conversations about movies, TV shows, and actors.
 
 ## Development Commands
 
 ```bash
 # Activate virtual environment
-source venv/bin/activate
+source .venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
@@ -18,8 +18,9 @@ pip install -r requirements.txt
 # Run locally (development)
 python app.py
 
-# Run with gunicorn (production-like)
-gunicorn app:app --bind 0.0.0.0:3030 --workers 2 --worker-class uvicorn.workers.UvicornWorker
+# Run with gunicorn (production-like; single worker - SWML handler info is a
+# module-global cache)
+gunicorn app:app --bind 0.0.0.0:3030 --workers 1 --worker-class uvicorn.workers.UvicornWorker
 
 # Test TMDB connection
 python -c "from tmdb_client import TMDBClient; client = TMDBClient('your_key'); print(client.search_movie('Star Wars'))"
