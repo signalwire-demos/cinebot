@@ -37,12 +37,6 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log('CineBot app initializing...');
     initializeElements();
     attachEventListeners();
-    // Set default background on page load
-    if (elements.appContainer) {
-        elements.appContainer.style.backgroundImage = "url('/background.png')";
-        elements.appContainer.style.backgroundSize = 'cover';
-        elements.appContainer.style.backgroundPosition = 'center';
-    }
     console.log('CineBot app initialized');
 });
 
@@ -54,7 +48,7 @@ function initializeElements() {
         connectBtn: document.getElementById('connectBtn'),
         hangupBtn: document.getElementById('hangupBtn'),
         statusText: document.getElementById('statusText'),
-        statusIndicator: document.querySelector('.status-indicator'),
+        statusIndicator: document.querySelector('.status-pulse'),
         welcomeScreen: document.getElementById('welcomeScreen'),
         
         // Agent elements
@@ -122,12 +116,10 @@ function attachEventListeners() {
 function resetConnectButton() {
     elements.connectBtn.disabled = false;
     elements.connectBtn.innerHTML = `
-        <span class="btn-film-hole left"></span>
-        <svg viewBox="0 0 24 24" width="18" height="18">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
             <path d="M8 5v14l11-7z" fill="currentColor"/>
         </svg>
         <span>Connect to CineBot</span>
-        <span class="btn-film-hole right"></span>
     `;
 }
 
@@ -153,8 +145,7 @@ async function fetchGuestToken() {
 async function connect() {
     try {
         elements.connectBtn.disabled = true;
-        // Find the text span (not the film hole spans)
-        const textSpan = elements.connectBtn.querySelector('span:not(.btn-film-hole)');
+        const textSpan = elements.connectBtn.querySelector('span');
         if (textSpan) textSpan.textContent = 'Connecting...';
         updateStatus('Getting token...', 'connecting');
 
@@ -758,7 +749,6 @@ function displayNowPlaying(data) {
     if (data.dates) {
         const dateInfo = document.createElement('div');
         dateInfo.className = 'date-info';
-        dateInfo.style.cssText = 'text-align: center; margin-bottom: 20px; color: rgba(255,255,255,0.7); font-size: 0.9rem;';
         dateInfo.textContent = `Showing movies from ${new Date(data.dates.minimum).toLocaleDateString()} to ${new Date(data.dates.maximum).toLocaleDateString()}`;
         elements.searchResults.insertBefore(dateInfo, elements.moviesGrid);
     }
@@ -771,9 +761,7 @@ function displayNowPlaying(data) {
             // Add "In Theaters" badge
             const badge = document.createElement('div');
             badge.className = 'in-theaters-badge';
-            badge.style.cssText = 'position: absolute; bottom: 10px; left: 10px; background: rgba(229, 9, 20, 0.9); color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; text-transform: uppercase; z-index: 1;';
-            badge.textContent = 'IN THEATERS';
-            card.style.position = 'relative';
+            badge.textContent = 'In Theaters';
             card.appendChild(badge);
             
             elements.moviesGrid.appendChild(card);
@@ -863,41 +851,58 @@ function displayTVDetails(details) {
     }
     elements.movieTagline.textContent = details.tagline || '';
     
-    // Format TV-specific metadata
+    // Format TV-specific metadata. Rebuild the meta row from scratch:
+    // displayMovieDetails clears it with innerHTML, which detaches the
+    // static #movieYear/#movieRuntime/#movieRating spans.
     const firstAirYear = details.first_air_date ? new Date(details.first_air_date).getFullYear() : '';
     const lastAirYear = details.last_air_date ? new Date(details.last_air_date).getFullYear() : '';
     const yearRange = lastAirYear && lastAirYear !== firstAirYear ? `${firstAirYear}-${lastAirYear}` : firstAirYear;
-    elements.movieYear.textContent = yearRange;
-    
+
     // Show comprehensive TV show runtime and season info
     let runtimeText = [];
-    
+
     // Add episode runtime if available
     if (details.episode_run_time && Array.isArray(details.episode_run_time) && details.episode_run_time.length > 0) {
         const avgRuntime = Math.round(details.episode_run_time.reduce((a, b) => a + b, 0) / details.episode_run_time.length);
         runtimeText.push(`${avgRuntime} min/episode`);
     }
-    
+
     // Add season count
     if (details.number_of_seasons) {
         runtimeText.push(`${details.number_of_seasons} season${details.number_of_seasons !== 1 ? 's' : ''}`);
     }
-    
+
     // Add episode count
     if (details.number_of_episodes) {
         runtimeText.push(`${details.number_of_episodes} episodes`);
     }
-    
-    // Set the runtime text or show status if no runtime info
-    if (runtimeText.length > 0) {
-        elements.movieRuntime.textContent = runtimeText.join(' • ');
-    } else if (details.status) {
-        elements.movieRuntime.textContent = details.status;
-    } else {
-        elements.movieRuntime.textContent = '';
+
+    const tvMetaContainer = document.querySelector('.movie-meta');
+    tvMetaContainer.innerHTML = '';
+
+    if (yearRange) {
+        const yearSpan = document.createElement('span');
+        yearSpan.className = 'movie-year';
+        yearSpan.textContent = yearRange;
+        tvMetaContainer.appendChild(yearSpan);
     }
-    
-    elements.movieRating.textContent = details.vote_average ? details.vote_average.toFixed(1) : 'N/A';
+
+    const runtimeSpan = document.createElement('span');
+    runtimeSpan.className = 'movie-runtime';
+    runtimeSpan.textContent = runtimeText.length > 0 ? runtimeText.join(' • ') : (details.status || '');
+    tvMetaContainer.appendChild(runtimeSpan);
+
+    if (details.vote_average) {
+        const ratingSpan = document.createElement('span');
+        ratingSpan.className = 'movie-rating';
+        ratingSpan.innerHTML = `
+            <svg class="star-icon" viewBox="0 0 24 24">
+                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+            </svg>
+            <span class="rating-number">${details.vote_average.toFixed(1)}/10</span>
+        `;
+        tvMetaContainer.appendChild(ratingSpan);
+    }
     
     // Set genres
     elements.movieGenres.innerHTML = '';
@@ -1066,11 +1071,10 @@ function displaySeasonDetails(data) {
         data.episodes.forEach((episode, index) => {
             const episodeCard = document.createElement('div');
             episodeCard.className = 'episode-card';
-            episodeCard.style.position = 'relative';
-            
+
             // Add episode number badge
             const badge = document.createElement('div');
-            badge.style.cssText = 'position: absolute; top: 10px; left: 10px; background: rgba(229, 9, 20, 0.9); color: white; padding: 6px 10px; border-radius: 16px; font-size: 0.9rem; font-weight: bold; z-index: 1;';
+            badge.className = 'episode-badge';
             badge.textContent = `E${episode.episode_number || index + 1}`;
             episodeCard.appendChild(badge);
             
@@ -1138,15 +1142,11 @@ function displaySeasonDetails(data) {
 function createTVCard(show, position = null) {
     const card = document.createElement('div');
     card.className = 'movie-card';
-    card.style.position = 'relative';
-    
+
     const firstAirYear = show.first_air_date ? ` (${new Date(show.first_air_date).getFullYear()})` : '';
-    
+
     // Add position number badge if provided
-    const positionBadge = position ? `
-        <div style="position: absolute; top: 10px; right: 10px; background: rgba(229, 9, 20, 0.9); color: white; padding: 6px; border-radius: 50%; font-size: 1rem; font-weight: bold; z-index: 1; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
-            ${position}
-        </div>` : '';
+    const positionBadge = position ? `<div class="position-badge">${position}</div>` : '';
     
     card.innerHTML = `
         ${positionBadge}
@@ -1166,26 +1166,22 @@ function createTVCard(show, position = null) {
 function createPersonCard(person, position = null) {
     const card = document.createElement('div');
     card.className = 'movie-card';
-    card.style.position = 'relative';
-    
+
     const knownFor = person.known_for_department || 'Unknown';
-    const knownForMovies = person.known_for && person.known_for.length > 0 
+    const knownForMovies = person.known_for && person.known_for.length > 0
         ? person.known_for.map(item => item.title || item.name).slice(0, 2).join(', ')
         : '';
-    
+
     // Add position number badge if provided
-    const positionBadge = position ? `
-        <div style="position: absolute; top: 10px; right: 10px; background: rgba(229, 9, 20, 0.9); color: white; padding: 6px; border-radius: 50%; font-size: 1rem; font-weight: bold; z-index: 1; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
-            ${position}
-        </div>` : '';
-    
+    const positionBadge = position ? `<div class="position-badge">${position}</div>` : '';
+
     card.innerHTML = `
         ${positionBadge}
         <img src="${person.profile_path ? `https://image.tmdb.org/t/p/w500${person.profile_path}` : PLACEHOLDER_PROFILE}" alt="${person.name}" class="movie-card-poster" onerror="this.src='${PLACEHOLDER_PROFILE}'">
         <div class="movie-card-title">
             ${person.name}
             <div class="movie-card-year">${knownFor}</div>
-            ${knownForMovies ? `<div style="font-size: 0.8em; color: #999; margin-top: 4px;">${knownForMovies}</div>` : ''}
+            ${knownForMovies ? `<div class="person-known-for">${knownForMovies}</div>` : ''}
         </div>
     `;
     
@@ -1231,8 +1227,6 @@ function displayMultiSearchResults(data) {
                 const badge = document.createElement('div');
                 badge.className = 'media-type-badge';
                 badge.textContent = item.media_type === 'tv' ? 'TV' : 'Movie';
-                badge.style.cssText = 'position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.8); color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; text-transform: uppercase; z-index: 1;';
-                card.style.position = 'relative';
                 card.appendChild(badge);
                 elements.moviesGrid.appendChild(card);
             }
@@ -1255,16 +1249,15 @@ function displayPersonDetails(person) {
     
     // Create a header section for person info
     const headerHTML = `
-        <div style="display: flex; gap: 30px; margin-bottom: 40px; padding: 20px; background: rgba(0,0,0,0.5); border-radius: 12px;">
-            <img src="${person.profile_path || PLACEHOLDER_PROFILE}" 
-                 style="width: 200px; height: 300px; object-fit: cover; border-radius: 8px;"
-                 onerror="this.src='${PLACEHOLDER_PROFILE}'">
-            <div style="flex: 1;">
-                <h2 style="font-size: 2rem; margin-bottom: 10px;">${person.name}</h2>
-                <p style="color: var(--accent); margin-bottom: 10px; font-size: 0.95rem;">${person.known_for_department || ''}</p>
-                ${person.birthday ? `<p style="margin-bottom: 10px; font-size: 0.9rem;">Born: ${person.birthday}${person.deathday ? ` - Died: ${person.deathday}` : ''}</p>` : ''}
-                ${person.total_movie_count ? `<p style="margin-bottom: 15px; font-size: 0.9rem;">Total Movies: ${person.total_movie_count}</p>` : ''}
-                <p style="line-height: 1.5; max-height: 200px; overflow-y: auto; font-size: 0.85rem; color: rgba(255,255,255,0.8);">${person.biography || 'No biography available.'}</p>
+        <div class="person-header">
+            <img class="person-header-photo" src="${person.profile_path || PLACEHOLDER_PROFILE}"
+                 alt="${person.name}" onerror="this.src='${PLACEHOLDER_PROFILE}'">
+            <div class="person-header-info">
+                <div class="person-header-name">${person.name}</div>
+                <div class="person-header-dept">${person.known_for_department || ''}</div>
+                ${person.birthday ? `<div class="person-header-dates">Born ${person.birthday}${person.deathday ? ` &middot; Died ${person.deathday}` : ''}</div>` : ''}
+                ${person.total_movie_count ? `<div class="person-header-count">${person.total_movie_count} movies</div>` : ''}
+                <div class="person-header-bio">${person.biography || 'No biography available.'}</div>
             </div>
         </div>
     `;
@@ -1354,12 +1347,11 @@ function displayWatchProviders(data) {
 function createMovieCard(movie, position = null) {
     const card = document.createElement('div');
     card.className = 'movie-card';
-    card.style.position = 'relative';
-    
+
     // Add position number badge if provided
     if (position) {
         const badge = document.createElement('div');
-        badge.style.cssText = 'position: absolute; top: 10px; right: 10px; background: rgba(229, 9, 20, 0.9); color: white; padding: 6px; border-radius: 50%; font-size: 1rem; font-weight: bold; z-index: 1; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;';
+        badge.className = 'position-badge';
         badge.textContent = position;
         card.appendChild(badge);
     }
@@ -1460,16 +1452,11 @@ function clearAllDisplays() {
         seasonsSection.remove();
     }
     
-    // Reset the background to default background.png
+    // Reset the backdrop background
     document.body.style.backgroundImage = '';
     document.body.style.backgroundSize = '';
     document.body.style.backgroundPosition = '';
     document.body.style.backgroundAttachment = '';
-    if (elements.appContainer) {
-        elements.appContainer.style.backgroundImage = "url('/background.png')";
-        elements.appContainer.style.backgroundSize = 'cover';
-        elements.appContainer.style.backgroundPosition = 'center';
-    }
 }
 
 // Trailer Functions
@@ -1525,7 +1512,7 @@ function updateStatus(text, status) {
         elements.statusText.textContent = text;
     }
     if (elements.statusIndicator) {
-        elements.statusIndicator.className = `status-indicator ${status}`;
+        elements.statusIndicator.className = `status-pulse ${status}`;
     }
     // Only show status during connection
     if (status === 'connecting' || status === 'connected' || status === 'error') {
