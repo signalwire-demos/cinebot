@@ -1141,6 +1141,13 @@ body {
     *::before,
     *::after {
         animation-duration: 0.01ms !important;
+        /* Without this, an `infinite` animation does not stop -- it cycles
+           ~100,000 times a second. Chromium clamps that to a static frame, but
+           Firefox samples it once per paint, so the marquee bulbs strobed
+           erratically for anyone with "reduce motion" enabled. Capping the
+           iteration count is what actually ends the animation; it settles on
+           the 100% keyframe (bulbs fully lit). */
+        animation-iteration-count: 1 !important;
         transition-duration: 0.01ms !important;
     }
 }
@@ -1237,4 +1244,447 @@ body {
     .movie-poster {
         width: 170px;
     }
+}
+
+/* ============================================================================
+   OLD HOLLYWOOD THEATER LAYER
+   ============================================================================
+   Ported forward from the pre-3f0fc69 theme onto the current build, rather
+   than reverting to it. Everything below is additive or a retint; none of the
+   structural fixes in the modernize commit are undone:
+
+     - the idle layout stays in NORMAL DOCUMENT FLOW (the theater header is not
+       sticky and .hero keeps flowing), so elements still cannot overlap at
+       small window sizes -- that was the whole point of the rewrite
+     - the video still docks to a bottom-right PiP; the frame just shrinks with it
+     - displayTVDetails still rebuilds .movie-meta per display (a JS fix, untouched)
+     - the badge / person-header classes the modernize commit introduced keep
+       their layout and are retinted here, not redefined
+
+   Two things are deliberately NOT ported from the old theme:
+     - .btn-film-hole spans. The old app.js read the button label with
+       querySelector('span:not(.btn-film-hole)'); the current one uses
+       querySelector('span'), so extra spans inside the button would be picked
+       up as the label. The holes are ::before/::after here instead.
+     - .status-indicator. The current app.js queries .status-pulse.
+   ========================================================================= */
+
+:root {
+    /* Old Hollywood palette */
+    --gold: #d4af37;
+    --gold-light: #f4d03f;
+    --gold-dark: #b8860b;
+    --burgundy: #4a0e0e;
+    --burgundy-light: #6b1515;
+    --velvet-red: #8b0000;
+    --maroon: #800020;
+    --cream: #f5f0e1;
+    --theater-black: #0d0908;
+    --warm-black: #1a1515;
+
+    /* Retint the existing tokens: every badge, star, position marker and
+       card in the current stylesheet already reads these, so warming them
+       here carries the theme through the whole app with no new selectors. */
+    --bg: #0d0908;
+    --surface: #1a1515;
+    --surface-2: #241c1c;
+    --border: rgba(212, 175, 55, 0.14);
+    --border-strong: rgba(212, 175, 55, 0.30);
+    --text: #f5f0e1;
+    --text-secondary: #c9b99a;
+    --text-muted: #9a8a70;
+    --accent: #d4af37;
+    --accent-strong: #f4d03f;
+    --accent-ink: #0d0908;
+
+    --curtain-w: 60px;
+}
+
+body {
+    background-image:
+        radial-gradient(ellipse at top, rgba(139, 0, 0, 0.15) 0%, transparent 50%),
+        radial-gradient(ellipse at bottom, rgba(74, 14, 14, 0.20) 0%, transparent 50%);
+    background-attachment: fixed;
+}
+
+/* ============ CURTAINS ============ */
+/* z-index 0 against .app-container's 1: the curtains sit behind every piece
+   of app chrome, so the PiP (300), header (400) and trailer modal (1100)
+   all paint over them. pointer-events:none keeps them non-interactive. */
+.curtain-left,
+.curtain-right {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    width: var(--curtain-w);
+    z-index: 0;
+    pointer-events: none;
+    background: linear-gradient(180deg,
+        var(--burgundy) 0%,
+        var(--velvet-red) 20%,
+        var(--burgundy-light) 50%,
+        var(--velvet-red) 80%,
+        var(--burgundy) 100%);
+}
+
+.curtain-left  { left: 0;  box-shadow: inset -20px 0 30px rgba(0, 0, 0, 0.5); }
+.curtain-right { right: 0; box-shadow: inset  20px 0 30px rgba(0, 0, 0, 0.5); }
+
+.curtain-left::after,
+.curtain-right::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 15px;
+    background: linear-gradient(180deg, var(--gold) 0%, var(--gold-dark) 50%, var(--gold) 100%);
+}
+
+.curtain-left::after  { right: 0; }
+.curtain-right::after { left: 0; }
+
+.app-container {
+    position: relative;
+    z-index: 1;
+}
+
+/* ============ THEATER HEADER ============ */
+/* Deliberately NOT sticky. A sticky header of this height would eat the
+   viewport on short windows, which is the overlap class of bug the modernize
+   commit fixed. It scrolls away like any other block. */
+.theater-header {
+    position: relative;
+    z-index: 400;
+    height: auto;
+    padding: 0;
+    text-align: center;
+    background: linear-gradient(180deg, var(--theater-black) 0%, var(--warm-black) 100%);
+    border-bottom: 4px solid var(--gold);
+    box-shadow:
+        0 10px 40px rgba(0, 0, 0, 0.8),
+        inset 0 -2px 0 rgba(212, 175, 55, 0.3);
+    margin-left: var(--curtain-w);
+    margin-right: var(--curtain-w);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
+.header-content {
+    padding: 6px 0 10px;
+}
+
+/* Marquee bulbs */
+.marquee-lights {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    padding: 8px 0;
+    background: var(--theater-black);
+    overflow: hidden;
+}
+
+.marquee-lights span {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--gold);
+    box-shadow: 0 0 10px var(--gold), 0 0 20px var(--gold-light), 0 0 30px rgba(244, 208, 63, 0.5);
+    animation: marquee-blink 1.5s ease-in-out infinite;
+}
+
+.marquee-lights span:nth-child(odd) { animation-delay: 0.75s; }
+
+@keyframes marquee-blink {
+    0%, 100% { opacity: 1;   box-shadow: 0 0 10px var(--gold), 0 0 20px var(--gold-light); }
+    50%      { opacity: 0.4; box-shadow: 0 0 5px var(--gold-dark); }
+}
+
+/* Art deco rules */
+.art-deco-border {
+    height: 3px;
+    max-width: 500px;
+    margin: 10px auto;
+    background: linear-gradient(90deg,
+        transparent 0%, var(--gold-dark) 15%, var(--gold) 30%,
+        var(--gold-light) 50%, var(--gold) 70%, var(--gold-dark) 85%, transparent 100%);
+}
+
+.art-deco-border.top::before,
+.art-deco-border.bottom::before {
+    content: '\25C6';
+    display: block;
+    margin-top: -6px;
+    text-align: center;
+    font-size: 10px;
+    color: var(--gold);
+}
+
+.theater-title {
+    margin: 0;
+    font-family: 'Cinzel Decorative', serif;
+    font-size: clamp(2rem, 6vw, 3.5rem);
+    font-weight: 900;
+    letter-spacing: 0.15em;
+    color: var(--gold);
+    text-shadow:
+        0 0 20px rgba(212, 175, 55, 0.5),
+        0 0 40px rgba(212, 175, 55, 0.3),
+        2px 2px 0 var(--gold-dark),
+        4px 4px 0 rgba(0, 0, 0, 0.5);
+}
+
+.star-accent {
+    font-size: 0.7em;
+    vertical-align: middle;
+    color: var(--gold-light);
+    text-shadow: 0 0 15px var(--gold);
+    animation: star-pulse 2s ease-in-out infinite;
+}
+
+/* Matches the deployed theme byte for byte. The stars SWELL (scale 1.1) and
+   dim only slightly; an earlier pass here had them shrink to 0.9 and dim to
+   0.65, which reads as a sharper, faster blink even at the same 2s duration. */
+@keyframes star-pulse {
+    0%, 100% { opacity: 1;   transform: scale(1); }
+    50%      { opacity: 0.7; transform: scale(1.1); }
+}
+
+.theater-tagline {
+    margin-top: 5px;
+    font-family: 'Cormorant Garamond', serif;
+    font-size: clamp(0.9rem, 2.5vw, 1.2rem);
+    font-style: italic;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--cream);
+}
+
+/* GitHub link, vintage ticket */
+.github-ticket {
+    position: absolute;
+    top: 50%;
+    right: 20px;
+    transform: translateY(-50%);
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border: 1px solid rgba(212, 175, 55, 0.3);
+    border-radius: 4px;
+    background: rgba(212, 175, 55, 0.1);
+    color: var(--gold);
+    font-family: 'Cinzel Decorative', serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    text-decoration: none;
+    transition: all 0.3s ease;
+}
+
+.github-ticket:hover {
+    background: rgba(212, 175, 55, 0.2);
+    border-color: var(--gold);
+    box-shadow: 0 0 15px rgba(212, 175, 55, 0.3);
+    transform: translateY(-50%) translateY(-2px);
+}
+
+/* ============ HERO ============ */
+/* min-height drops to auto because the theater header is tall and in flow;
+   keeping the old calc() against --header-h (57px) would over-reserve and
+   push the fold. Still pure flow, so still no overlap. */
+.hero {
+    min-height: auto;
+    padding: 40px 20px 56px;
+}
+
+/* ============ ORNATE FRAME ============ */
+.agent-video-wrapper {
+    position: relative;
+    width: 100%;
+}
+
+.ornate-frame {
+    position: absolute;
+    inset: -15px;
+    z-index: 10;
+    border: 8px solid;
+    border-image: linear-gradient(135deg,
+        var(--gold-light) 0%, var(--gold) 25%, var(--gold-dark) 50%,
+        var(--gold) 75%, var(--gold-light) 100%) 1;
+    border-radius: 8px;
+    pointer-events: none;
+    box-shadow:
+        0 0 30px rgba(212, 175, 55, 0.3),
+        inset 0 0 30px rgba(0, 0, 0, 0.5);
+}
+
+.ornate-frame::before {
+    content: '';
+    position: absolute;
+    inset: 5px;
+    border: 2px solid rgba(212, 175, 55, 0.4);
+    border-radius: 4px;
+}
+
+.frame-corner {
+    position: absolute;
+    width: 30px;
+    height: 30px;
+    border: 3px solid var(--gold);
+}
+
+.frame-corner.top-left     { top: -5px;    left: -5px;  border-right: none; border-bottom: none; }
+.frame-corner.top-right    { top: -5px;    right: -5px; border-left: none;  border-bottom: none; }
+.frame-corner.bottom-left  { bottom: -5px; left: -5px;  border-right: none; border-top: none; }
+.frame-corner.bottom-right { bottom: -5px; right: -5px; border-left: none;  border-top: none; }
+
+/* Frame scales down with the PiP so it does not swamp a 224px card. */
+.agent-container.corner .ornate-frame { inset: -8px; border-width: 4px; }
+.agent-container.corner .frame-corner { width: 15px; height: 15px; border-width: 2px; }
+
+/* Clear the right curtain so the docked PiP does not straddle the velvet. */
+.agent-container.corner { right: calc(var(--curtain-w) + 16px); }
+
+/* ============ VINTAGE BUTTONS ============ */
+.vintage-btn {
+    position: relative;
+    padding-left: 26px;
+    padding-right: 26px;
+    font-family: 'Cinzel Decorative', serif;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    background: linear-gradient(135deg, var(--gold) 0%, var(--gold-dark) 100%);
+    color: var(--theater-black);
+    border: 3px solid var(--gold-light);
+    box-shadow:
+        0 5px 20px rgba(212, 175, 55, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3),
+        inset 0 -2px 0 rgba(0, 0, 0, 0.2);
+    overflow: visible;
+}
+
+.vintage-btn:hover:not(:disabled) {
+    background: linear-gradient(135deg, var(--gold-light) 0%, var(--gold) 100%);
+    box-shadow:
+        0 8px 30px rgba(212, 175, 55, 0.6),
+        0 0 40px rgba(212, 175, 55, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.4);
+    transform: translateY(-3px);
+}
+
+/* Film-sprocket holes as pseudo-elements -- see the note at the top of this
+   block for why these are not spans. */
+.vintage-btn::before,
+.vintage-btn::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    width: 8px;
+    height: 8px;
+    transform: translateY(-50%);
+    border-radius: 2px;
+    background: var(--theater-black);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
+}
+
+.vintage-btn::before { left: 8px; }
+.vintage-btn::after  { right: 8px; }
+
+.hangup-btn.vintage-btn {
+    background: linear-gradient(135deg, var(--velvet-red) 0%, #5a0000 100%);
+    border-color: var(--maroon);
+    color: var(--cream);
+}
+
+.hangup-btn.vintage-btn:hover:not(:disabled) {
+    background: linear-gradient(135deg, #a00000 0%, var(--velvet-red) 100%);
+    box-shadow: 0 8px 30px rgba(139, 0, 0, 0.5);
+}
+
+.hangup-btn.vintage-btn::before,
+.hangup-btn.vintage-btn::after { background: rgba(0, 0, 0, 0.55); }
+
+/* ============ DISPLAY TYPE ============ */
+/* Display faces on headings only. Inter stays on dense UI -- badges, meta
+   rows, cast cards -- where Cormorant is unreadable at 11-13px. */
+.movie-title,
+.person-header-name {
+    font-family: 'Cormorant Garamond', serif;
+    letter-spacing: 0.01em;
+}
+
+/* The one class the current app.js emits that never had a rule. */
+.no-results {
+    padding: 28px 20px;
+    text-align: center;
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 1.1rem;
+    font-style: italic;
+    color: var(--text-secondary);
+}
+
+/* ============ RESPONSIVE ============ */
+@media (max-width: 900px) {
+    :root { --curtain-w: 30px; }
+    .curtain-left::after,
+    .curtain-right::after { width: 8px; }
+}
+
+@media (max-width: 700px) {
+    .github-ticket { right: 10px; padding: 8px; }
+    .github-ticket span { display: none; }
+}
+
+@media (max-width: 600px) {
+    :root { --curtain-w: 0px; }
+    .curtain-left,
+    .curtain-right { display: none; }
+    .theater-header { margin-left: 0; margin-right: 0; }
+    .agent-container.corner { right: 16px; }
+    .marquee-lights { gap: 12px; }
+    .marquee-lights span { width: 8px; height: 8px; }
+}
+
+/* ============ MARQUEE UNDER REDUCED MOTION ============ */
+/* The blanket rule above settles every animation after one cycle. For the
+   marquee bulbs that leaves a dead sign, which is not what the deployed
+   theme does -- tryit ships no reduced-motion block at all, so its lights
+   blink for everyone. Restoring just the bulbs here so the header matches.
+   
+   Why this is a safe exemption rather than ignoring the preference:
+     - marquee-blink animates OPACITY only. No transform, no movement, so
+       none of the vestibular triggers prefers-reduced-motion exists for.
+     - the cycle is 1.5s == 0.67 Hz, an order of magnitude under the WCAG
+       2.3.1 three-flashes-per-second threshold.
+   star-pulse is deliberately NOT restored: it animates scale(), which is
+   real movement, so it stays settled for reduced-motion users.
+   
+   To respect the preference completely instead, delete this block -- the
+   bulbs then sit lit and static, which is also a correct-looking sign. */
+@media (prefers-reduced-motion: reduce) {
+    .marquee-lights span {
+        animation-duration: 1.5s !important;
+        animation-iteration-count: infinite !important;
+    }
+}
+
+/* Mic-paused caption inside the trailer modal. See muteMicForTrailer() in
+   app.js: the mic is muted for the duration so the trailer's own dialogue is
+   not transcribed as caller speech. Without this line the demo just looks
+   like voice stopped working. */
+.trailer-mic-note {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    margin-top: 14px;
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    letter-spacing: 0.01em;
+    color: var(--gold);
+    opacity: 0.85;
 }
