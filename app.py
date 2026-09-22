@@ -60,6 +60,53 @@ def get_rest_client():
     return RestClient(project=project, token=token, host=sw_host)
 
 
+# ---------------------------------------------------------------------------
+# Trailer hold
+#
+# The agent used to talk all the way through a trailer. The cause is not the
+# trailer audio -- it is that the caller goes SILENT while watching, and the
+# platform's attention_timeout (the SDK's own project template ships 15000ms)
+# fires to re-engage them. So every ~15 seconds the agent pipes up over the
+# film. Muting the browser mic makes it worse, because the silence becomes
+# total.
+#
+# The fix is to put the AI on hold for the duration: hold pauses speech
+# detection and the agent does not respond, so no attention timeout fires.
+# The browser drives it, because only the browser knows the real runtime of
+# the video (YouTube's player reports it) and when the viewer closed it early.
+#
+# AUTHORIZATION: the browser sends its own call id, which is an untrusted
+# value. Without a check, this endpoint would let anyone hold or unhold any
+# call in the project. Only call ids this agent has actually served a trailer
+# to are accepted, and only for a bounded time.
+#
+# This dict is per-process, which is safe only because the container runs a
+# single worker (see the note in the Dockerfile). If that ever changes, this
+# needs to move to shared state along with the agent's other session state.
+# ---------------------------------------------------------------------------
+_TRAILER_CALLS = {}
+_TRAILER_CALL_TTL = 6 * 3600
+_TRAILER_HOLD_MAX = 900  # platform ceiling for a hold, in seconds
+
+
+def remember_trailer_call(raw_data):
+    """Record the call id of a caller that has just been sent a trailer."""
+    call_id = (raw_data or {}).get("call_id")
+    if not call_id:
+        return None
+    now = time.time()
+    _TRAILER_CALLS[call_id] = now
+    for known, seen in list(_TRAILER_CALLS.items()):
+        if now - seen > _TRAILER_CALL_TTL:
+            _TRAILER_CALLS.pop(known, None)
+    return call_id
+
+
+def trailer_call_known(call_id):
+    seen = _TRAILER_CALLS.get(call_id)
+    return bool(seen) and (time.time() - seen) <= _TRAILER_CALL_TTL
+
+
 def find_resource_address(addresses, agent_name):
     """
     Find the resource address matching /public/{agent_name} from a list of addresses.
@@ -1173,6 +1220,11 @@ class MovieAgent(AgentBase):
             }
         )
         def get_videos(args, raw_data):
+            # Authorize this caller to drive /trailer/hold and /trailer/unhold.
+            # Registering here, rather than on every tool call, keeps the window
+            # to callers who have actually reached a trailer.
+            remember_trailer_call(raw_data)
+
             # Determine content type and ID
             content_type = args.get("content_type")
             content_id = args.get("content_id")
@@ -2384,6 +2436,71 @@ def create_server(port=None):
     async def get_watchlist():
         """Return current watchlist"""
         return JSONResponse(content={"watchlist": agent.watchlist})
+
+    @server.app.post("/trailer/hold")
+    async def trailer_hold(request: Request):
+        """
+        Put the AI on hold for the length of a trailer.
+
+        Called by the browser once the YouTube player reports its duration, so
+        the hold matches the actual runtime rather than a guess. /trailer/unhold
+        releases it the moment the viewer closes the trailer; this timeout is
+        only the backstop for a browser that goes away mid-video.
+        """
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+
+        call_id = (body or {}).get("call_id")
+        seconds = (body or {}).get("seconds")
+
+        if not call_id or not trailer_call_known(call_id):
+            # Deliberately the same response for unknown and not-yet-served, so
+            # this cannot be used to probe which call ids are live.
+            return JSONResponse({"error": "unknown call"}, status_code=403)
+
+        try:
+            seconds = int(seconds)
+        except (TypeError, ValueError):
+            seconds = 300
+        seconds = max(5, min(_TRAILER_HOLD_MAX, seconds))
+
+        client = get_rest_client()
+        if client is None:
+            return JSONResponse({"error": "SignalWire credentials not configured"}, status_code=500)
+
+        try:
+            client.calling.ai_hold(call_id, timeout=seconds)
+            logger.info(f"Trailer hold: call {call_id} held for {seconds}s")
+            return {"held": True, "seconds": seconds}
+        except Exception as e:
+            logger.warning(f"Trailer hold failed for {call_id}: {e}")
+            return JSONResponse({"error": "hold failed"}, status_code=502)
+
+    @server.app.post("/trailer/unhold")
+    async def trailer_unhold(request: Request):
+        """Release the hold as soon as the viewer closes the trailer."""
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+
+        call_id = (body or {}).get("call_id")
+        if not call_id or not trailer_call_known(call_id):
+            return JSONResponse({"error": "unknown call"}, status_code=403)
+
+        client = get_rest_client()
+        if client is None:
+            return JSONResponse({"error": "SignalWire credentials not configured"}, status_code=500)
+
+        try:
+            client.calling.ai_unhold(call_id)
+            logger.info(f"Trailer unhold: call {call_id} released")
+            return {"held": False}
+        except Exception as e:
+            logger.warning(f"Trailer unhold failed for {call_id}: {e}")
+            return JSONResponse({"error": "unhold failed"}, status_code=502)
 
     @server.app.get("/get_token")
     def get_token():

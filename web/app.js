@@ -110,6 +110,20 @@ function attachEventListeners() {
     
     // Modal close button
     elements.closeTrailerBtn?.addEventListener('click', () => closeTrailer());
+
+    // Clicking the backdrop (outside the video) closes it too, and Escape --
+    // both must go through closeTrailer() so the hold is released. Leaving a
+    // caller held because they dismissed the trailer a different way would
+    // mute the agent until the server-side timeout expired.
+    elements.trailerModal?.addEventListener('click', (ev) => {
+        if (ev.target === elements.trailerModal) closeTrailer();
+    });
+    document.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Escape' && elements.trailerModal &&
+            !elements.trailerModal.classList.contains('hidden')) {
+            closeTrailer();
+        }
+    });
 }
 
 // Helper to reset connect button to original state
@@ -339,6 +353,10 @@ function setupRemoteMedia(activeCall) {
 
 function disconnect() {
     console.log('Disconnecting...');
+
+    // Drop any trailer hold before the call goes away; call.id is read inside,
+    // and it is gone once the call is torn down.
+    releaseTrailerHold();
 
     // Drop all RxJS subscriptions from this session
     callSubscriptions.forEach((sub) => {
@@ -1464,66 +1482,120 @@ function clearAllDisplays() {
 let currentTrailer = null;
 
 // ---------------------------------------------------------------------------
-// Microphone handling while a trailer plays
+// Trailer hold
 //
-// The call is never torn down to show a trailer, so the agent stays live -- and
-// that was the bug. The trailer plays out of the speakers, the microphone picks
-// it up, ASR transcribes the film's dialogue as if the caller had said it, and
-// the agent dutifully answers. The result is an agent that talks over the whole
-// trailer, replying to the movie.
+// Why the agent used to talk through the whole trailer: it is not the trailer
+// audio being transcribed. The caller simply goes SILENT while watching, and
+// the platform's attention_timeout (the SDK's own template ships 15000ms)
+// fires to re-engage them -- so the agent pipes up every ~15s, over the film.
 //
-// Muting the local mic for the duration breaks that loop at the source: with
-// nothing being transcribed, the agent has nothing to respond to and stays
-// quiet until the trailer is closed.
+// Putting the AI on hold for the duration is the actual fix: hold pauses
+// speech detection and the agent does not respond, so no attention timeout
+// fires and nothing is transcribed either.
 //
-// Trade-off, and the reason the modal keeps a visible close button: voice
-// commands do not work while the trailer is up. Closing it restores the mic.
+// The browser drives it because only the browser knows two things the server
+// cannot: the real runtime of the video (the YouTube player reports it) and
+// the moment the viewer closed it early. The server-side timeout is only a
+// backstop for a browser that disappears mid-video.
+//
+// An earlier attempt muted the microphone instead. That treated the symptom
+// and made it worse -- total silence is exactly what trips the attention
+// timeout.
 // ---------------------------------------------------------------------------
-let micGainBeforeTrailer = null;
-let micTracksDisabledForTrailer = [];
+// Provisional hold placed the instant a trailer opens, before the player has
+// reported anything. Long enough to cover a typical trailer if the refine step
+// never happens; closing the trailer releases it regardless.
+const TRAILER_HOLD_FALLBACK_S = 300;
 
-function muteMicForTrailer() {
-    if (!call) return;
-    // setLocalMicrophoneGain takes a 0-200 percentage (100 = unity) and acts on
-    // the SDK's local audio pipeline ahead of the RTCRtpSender.
+let trailerHeld = false;
+let ytPlayer = null;
+let ytApiLoading = null;
+
+function currentCallId() {
+    // Verified to be the same id the platform uses for this call, which is
+    // what /trailer/hold authorizes against.
+    return (call && call.id) ? call.id : null;
+}
+
+function loadYouTubeApi() {
+    if (window.YT && window.YT.Player) return Promise.resolve();
+    if (ytApiLoading) return ytApiLoading;
+    ytApiLoading = new Promise((resolve) => {
+        const previous = window.onYouTubeIframeAPIReady;
+        window.onYouTubeIframeAPIReady = () => {
+            if (typeof previous === 'function') previous();
+            resolve();
+        };
+        const s = document.createElement('script');
+        s.src = 'https://www.youtube.com/iframe_api';
+        s.onerror = () => resolve();   // fall back to no hold rather than hang
+        document.head.appendChild(s);
+    });
+    return ytApiLoading;
+}
+
+async function holdForTrailer(seconds, refine) {
+    const callId = currentCallId();
+    // `refine` re-issues the hold once the player reports the true runtime.
+    // Without it the first (provisional) hold would win and the agent would
+    // come back mid-film, or sit silent long after a short trailer ended.
+    if (!callId || (trailerHeld && !refine)) return;
     try {
-        if (typeof call.setLocalMicrophoneGain === 'function') {
-            if (micGainBeforeTrailer === null) micGainBeforeTrailer = 100;
-            call.setLocalMicrophoneGain(0);
-        }
+        const resp = await fetch('/trailer/hold', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ call_id: callId, seconds })
+        });
+        trailerHeld = resp.ok;
+        if (!resp.ok) console.warn('Trailer hold rejected:', resp.status);
     } catch (e) {
-        console.warn('Could not zero mic gain for trailer:', e);
-    }
-    // Belt and braces: setLocalMicrophoneGain warns and returns without doing
-    // anything if the audio pipeline is not up yet, so disable the outgoing
-    // track as well. A disabled track transmits silence.
-    try {
-        const stream = call.localStream;
-        micTracksDisabledForTrailer = [];
-        if (stream && typeof stream.getAudioTracks === 'function') {
-            stream.getAudioTracks().forEach((t) => {
-                if (t.enabled) { t.enabled = false; micTracksDisabledForTrailer.push(t); }
-            });
-        }
-    } catch (e) {
-        console.warn('Could not disable local audio track for trailer:', e);
+        console.warn('Trailer hold request failed:', e);
     }
 }
 
-function restoreMicAfterTrailer() {
+async function releaseTrailerHold() {
+    if (!trailerHeld) return;
+    trailerHeld = false;               // cleared first: a failed release must
+                                       // not leave us thinking we are held
+    const callId = currentCallId();
+    if (!callId) return;
     try {
-        micTracksDisabledForTrailer.forEach((t) => { t.enabled = true; });
-    } catch (e) { /* track already gone with the call */ }
-    micTracksDisabledForTrailer = [];
-
-    try {
-        if (call && typeof call.setLocalMicrophoneGain === 'function' && micGainBeforeTrailer !== null) {
-            call.setLocalMicrophoneGain(micGainBeforeTrailer);
-        }
+        await fetch('/trailer/unhold', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ call_id: callId })
+        });
     } catch (e) {
-        console.warn('Could not restore mic gain after trailer:', e);
+        console.warn('Trailer unhold request failed:', e);
     }
-    micGainBeforeTrailer = null;
+}
+
+// Attach the YouTube player once and reuse it. destroy() removes the iframe
+// element, which would break the next playTrailer(), so the player is kept
+// alive for the life of the page and the video is swapped with loadVideoById.
+function attachYouTubePlayer() {
+    if (ytPlayer || !window.YT || !window.YT.Player) return;
+    const refineFromPlayer = (target) => {
+        const d = Math.ceil((target && target.getDuration && target.getDuration()) || 0);
+        if (d > 0) holdForTrailer(d + 5, true);
+    };
+    ytPlayer = new window.YT.Player('trailerFrame', {
+        events: {
+            // Both are wired on purpose. onReady gives the duration as early
+            // as possible; onStateChange PLAYING fires for every video, so it
+            // also covers the second and later trailers of a session, where
+            // onReady has already been and gone.
+            onReady: (e) => refineFromPlayer(e.target),
+            onStateChange: (e) => {
+                const YTS = window.YT.PlayerState;
+                if (e.data === YTS.PLAYING) {
+                    refineFromPlayer(e.target);
+                } else if (e.data === YTS.ENDED) {
+                    closeTrailer();
+                }
+            }
+        }
+    });
 }
 
 function playTrailer(video) {
@@ -1548,13 +1620,25 @@ function playTrailer(video) {
             showinfo: 0 // Hide video title/uploader before playing
         });
         
-        elements.trailerFrame.src = `https://www.youtube.com/embed/${trailerVideo.key}?${params.toString()}`;
+        // Reuse the player across trailers; only set src for the first one,
+        // or the YT.Player attached to this iframe is torn out from under us.
+        if (ytPlayer && typeof ytPlayer.loadVideoById === 'function') {
+            ytPlayer.loadVideoById(trailerVideo.key);
+        } else {
+            elements.trailerFrame.src =
+                `https://www.youtube.com/embed/${trailerVideo.key}?${params.toString()}`;
+        }
         elements.trailerModal.classList.remove('hidden');
         currentTrailer = trailerVideo;
 
-        // Stop the trailer's own audio being heard as caller speech, which is
-        // what made the agent talk through the whole thing.
-        muteMicForTrailer();
+        // Hold IMMEDIATELY with a conservative default, then refine to the
+        // real runtime once the player reports it. Waiting for the player
+        // first leaves a window where the attention timeout can still fire --
+        // and if the YouTube API is slow, blocked, or never reaches PLAYING,
+        // there would be no hold at all and the agent would talk over the
+        // whole trailer. The provisional hold is the floor, not the plan.
+        holdForTrailer(TRAILER_HOLD_FALLBACK_S);
+        loadYouTubeApi().then(attachYouTubePlayer);
     }
 }
 
@@ -1564,9 +1648,19 @@ function enableTrailerButton(video) {
 }
 
 function closeTrailer() {
+    // Release first, so the agent is listening again the moment the trailer
+    // goes away rather than after the server-side timeout expires.
+    releaseTrailerHold();
+
     elements.trailerModal.classList.add('hidden');
-    elements.trailerFrame.src = '';
-    restoreMicAfterTrailer();
+
+    // Stop playback without destroying the player: destroy() removes the
+    // iframe, and #trailerFrame has to survive for the next trailer.
+    if (ytPlayer && typeof ytPlayer.stopVideo === 'function') {
+        try { ytPlayer.stopVideo(); } catch (e) { /* player not ready */ }
+    } else {
+        elements.trailerFrame.src = '';
+    }
 }
 
 // Utility Functions
