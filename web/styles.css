@@ -1141,6 +1141,13 @@ body {
     *::before,
     *::after {
         animation-duration: 0.01ms !important;
+        /* Without this, an `infinite` animation does not stop -- it cycles
+           ~100,000 times a second. Chromium clamps that to a static frame, but
+           Firefox samples it once per paint, so the marquee bulbs strobed
+           erratically for anyone with "reduce motion" enabled. Capping the
+           iteration count is what actually ends the animation; it settles on
+           the 100% keyframe (bulbs fully lit). */
+        animation-iteration-count: 1 !important;
         transition-duration: 0.01ms !important;
     }
 }
@@ -1640,4 +1647,27 @@ body {
     .agent-container.corner { right: 16px; }
     .marquee-lights { gap: 12px; }
     .marquee-lights span { width: 8px; height: 8px; }
+}
+
+/* ============ MARQUEE UNDER REDUCED MOTION ============ */
+/* The blanket rule above settles every animation after one cycle. For the
+   marquee bulbs that leaves a dead sign, which is not what the deployed
+   theme does -- tryit ships no reduced-motion block at all, so its lights
+   blink for everyone. Restoring just the bulbs here so the header matches.
+   
+   Why this is a safe exemption rather than ignoring the preference:
+     - marquee-blink animates OPACITY only. No transform, no movement, so
+       none of the vestibular triggers prefers-reduced-motion exists for.
+     - the cycle is 1.5s == 0.67 Hz, an order of magnitude under the WCAG
+       2.3.1 three-flashes-per-second threshold.
+   star-pulse is deliberately NOT restored: it animates scale(), which is
+   real movement, so it stays settled for reduced-motion users.
+   
+   To respect the preference completely instead, delete this block -- the
+   bulbs then sit lit and static, which is also a correct-looking sign. */
+@media (prefers-reduced-motion: reduce) {
+    .marquee-lights span {
+        animation-duration: 1.5s !important;
+        animation-iteration-count: infinite !important;
+    }
 }
