@@ -1671,3 +1671,20 @@ body {
         animation-iteration-count: infinite !important;
     }
 }
+
+/* Mic-paused caption inside the trailer modal. See muteMicForTrailer() in
+   app.js: the mic is muted for the duration so the trailer's own dialogue is
+   not transcribed as caller speech. Without this line the demo just looks
+   like voice stopped working. */
+.trailer-mic-note {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    margin-top: 14px;
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    letter-spacing: 0.01em;
+    color: var(--gold);
+    opacity: 0.85;
+}

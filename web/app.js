@@ -1440,10 +1440,11 @@ function clearAllDisplays() {
     // Don't move agent back to center - it should stay in corner once content has been shown
     // Only move back to center on disconnect
     
-    // Close trailer modal if open
+    // Close trailer modal if open. Goes through closeTrailer() so the mic is
+    // restored too -- hiding the modal directly here used to leave the caller
+    // muted for the rest of the call.
     if (elements.trailerModal && !elements.trailerModal.classList.contains('hidden')) {
-        elements.trailerModal.classList.add('hidden');
-        elements.trailerFrame.src = '';
+        closeTrailer();
     }
     
     // Clear any dynamically created seasons section
@@ -1461,6 +1462,69 @@ function clearAllDisplays() {
 
 // Trailer Functions
 let currentTrailer = null;
+
+// ---------------------------------------------------------------------------
+// Microphone handling while a trailer plays
+//
+// The call is never torn down to show a trailer, so the agent stays live -- and
+// that was the bug. The trailer plays out of the speakers, the microphone picks
+// it up, ASR transcribes the film's dialogue as if the caller had said it, and
+// the agent dutifully answers. The result is an agent that talks over the whole
+// trailer, replying to the movie.
+//
+// Muting the local mic for the duration breaks that loop at the source: with
+// nothing being transcribed, the agent has nothing to respond to and stays
+// quiet until the trailer is closed.
+//
+// Trade-off, and the reason the modal keeps a visible close button: voice
+// commands do not work while the trailer is up. Closing it restores the mic.
+// ---------------------------------------------------------------------------
+let micGainBeforeTrailer = null;
+let micTracksDisabledForTrailer = [];
+
+function muteMicForTrailer() {
+    if (!call) return;
+    // setLocalMicrophoneGain takes a 0-200 percentage (100 = unity) and acts on
+    // the SDK's local audio pipeline ahead of the RTCRtpSender.
+    try {
+        if (typeof call.setLocalMicrophoneGain === 'function') {
+            if (micGainBeforeTrailer === null) micGainBeforeTrailer = 100;
+            call.setLocalMicrophoneGain(0);
+        }
+    } catch (e) {
+        console.warn('Could not zero mic gain for trailer:', e);
+    }
+    // Belt and braces: setLocalMicrophoneGain warns and returns without doing
+    // anything if the audio pipeline is not up yet, so disable the outgoing
+    // track as well. A disabled track transmits silence.
+    try {
+        const stream = call.localStream;
+        micTracksDisabledForTrailer = [];
+        if (stream && typeof stream.getAudioTracks === 'function') {
+            stream.getAudioTracks().forEach((t) => {
+                if (t.enabled) { t.enabled = false; micTracksDisabledForTrailer.push(t); }
+            });
+        }
+    } catch (e) {
+        console.warn('Could not disable local audio track for trailer:', e);
+    }
+}
+
+function restoreMicAfterTrailer() {
+    try {
+        micTracksDisabledForTrailer.forEach((t) => { t.enabled = true; });
+    } catch (e) { /* track already gone with the call */ }
+    micTracksDisabledForTrailer = [];
+
+    try {
+        if (call && typeof call.setLocalMicrophoneGain === 'function' && micGainBeforeTrailer !== null) {
+            call.setLocalMicrophoneGain(micGainBeforeTrailer);
+        }
+    } catch (e) {
+        console.warn('Could not restore mic gain after trailer:', e);
+    }
+    micGainBeforeTrailer = null;
+}
 
 function playTrailer(video) {
     const trailerVideo = video || currentTrailer;
@@ -1487,6 +1551,10 @@ function playTrailer(video) {
         elements.trailerFrame.src = `https://www.youtube.com/embed/${trailerVideo.key}?${params.toString()}`;
         elements.trailerModal.classList.remove('hidden');
         currentTrailer = trailerVideo;
+
+        // Stop the trailer's own audio being heard as caller speech, which is
+        // what made the agent talk through the whole thing.
+        muteMicForTrailer();
     }
 }
 
@@ -1498,6 +1566,7 @@ function enableTrailerButton(video) {
 function closeTrailer() {
     elements.trailerModal.classList.add('hidden');
     elements.trailerFrame.src = '';
+    restoreMicAfterTrailer();
 }
 
 // Utility Functions
