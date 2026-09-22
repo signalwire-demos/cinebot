@@ -32,30 +32,52 @@
     <link rel="stylesheet" href="styles.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Inter stays for dense UI (badges, meta rows, cards) where the display
+         faces are unreadable at 11-13px; Cinzel/Cormorant are display-only. -->
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
+    <!-- Decorative only: fixed, pointer-events:none, and painted BELOW
+         .app-container so they can never cover the PiP or the trailer modal. -->
+    <div class="curtain-left" aria-hidden="true"></div>
+    <div class="curtain-right" aria-hidden="true"></div>
+
     <!-- Main Container -->
     <div id="appContainer" class="app-container">
 
         <!-- Header -->
-        <header class="site-header">
-            <div class="brand">
-                <svg class="brand-mark" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-                    <rect x="2" y="2" width="20" height="20" rx="5" fill="currentColor" opacity="0.15"/>
-                    <rect x="2" y="2" width="20" height="20" rx="5" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.5"/>
-                    <path d="M10 8.5v7l6-3.5z" fill="currentColor"/>
-                </svg>
-                <span class="brand-name">CineBot</span>
-                <span class="brand-tagline">Your AI movie companion</span>
+        <header class="theater-header">
+            <div class="marquee-lights top-lights" aria-hidden="true">
+                <span></span><span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span><span></span>
             </div>
 
-            <a href="https://github.com/signalwire-demos/cinebot" target="_blank" rel="noopener noreferrer" class="github-link" title="View on GitHub">
+            <div class="header-content">
+                <div class="art-deco-border top" aria-hidden="true"></div>
+                <h1 class="theater-title">
+                    <span class="star-accent" aria-hidden="true">★</span>
+                    CINEBOT
+                    <span class="star-accent" aria-hidden="true">★</span>
+                </h1>
+                <p class="theater-tagline">Your AI Movie Companion</p>
+                <div class="art-deco-border bottom" aria-hidden="true"></div>
+            </div>
+
+            <a href="https://github.com/signalwire-demos/cinebot" target="_blank" rel="noopener noreferrer" class="github-ticket" title="View on GitHub">
                 <svg class="github-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
                 </svg>
                 <span>GitHub</span>
             </a>
+
+            <div class="marquee-lights bottom-lights" aria-hidden="true">
+                <span></span><span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span><span></span>
+            </div>
         </header>
 
         <!-- Hero: agent video + connection controls. In normal flow while idle
@@ -63,19 +85,27 @@
              content is displayed. -->
         <main class="hero">
             <div id="agentContainer" class="agent-container centered">
-                <div id="videoContainer" class="video-container">
-                    <!-- Video element added dynamically -->
+                <div class="agent-video-wrapper">
+                    <div class="ornate-frame" aria-hidden="true">
+                        <div class="frame-corner top-left"></div>
+                        <div class="frame-corner top-right"></div>
+                        <div class="frame-corner bottom-left"></div>
+                        <div class="frame-corner bottom-right"></div>
+                    </div>
+                    <div id="videoContainer" class="video-container">
+                        <!-- Video element added dynamically -->
+                    </div>
                 </div>
             </div>
 
             <div class="connection-controls-container">
-                <button id="connectBtn" class="control-btn connect-btn">
+                <button id="connectBtn" class="control-btn connect-btn vintage-btn">
                     <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
                         <path d="M8 5v14l11-7z" fill="currentColor"/>
                     </svg>
                     <span>Connect to CineBot</span>
                 </button>
-                <button id="hangupBtn" class="control-btn hangup-btn" style="display: none;">
+                <button id="hangupBtn" class="control-btn hangup-btn vintage-btn" style="display: none;">
                     <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
                         <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.68.28-.3 0-.55-.13-.74-.33l-3.46-3.45c-.17-.17-.26-.39-.26-.63 0-.24.09-.46.26-.63C3.15 7.05 7.46 5 12 5s8.85 2.05 12.7 5.86c.17.17.26.39.26.63 0 .24-.09.46-.26.63l-3.46 3.45c-.19.2-.45.33-.74.33-.25 0-.5-.1-.68-.28-.79-.73-1.68-1.36-2.66-1.85-.33-.16-.56-.51-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z" fill="currentColor"/>
                     </svg>
