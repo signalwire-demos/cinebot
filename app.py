@@ -2471,8 +2471,18 @@ def create_server(port=None):
             return JSONResponse({"error": "SignalWire credentials not configured"}, status_code=500)
 
         try:
-            client.calling.ai_hold(call_id, timeout=seconds)
-            logger.info(f"Trailer hold: call {call_id} held for {seconds}s")
+            # timeout MUST go over the wire as a string. The SDK types this
+            # parameter `int | None` (calling_resources_generated.ai_hold), but
+            # the platform's own schema for calling.ai_hold is `timeout: str`
+            # (relay/protocol_types_generated.CallingAiHoldParams). Passing the
+            # int the signature asks for is accepted by the REST call and then
+            # fails asynchronously: the call log shows `calling.ai_hold`
+            # executed, followed one second later by
+            #   calling_error 400 "timeout error"
+            # and the agent is never actually held. Nothing raises here, so the
+            # only evidence is the platform event log.
+            resp = client.calling.ai_hold(call_id, timeout=str(seconds))
+            logger.info(f"Trailer hold: call {call_id} held for {seconds}s -> {resp}")
             return {"held": True, "seconds": seconds}
         except Exception as e:
             logger.warning(f"Trailer hold failed for {call_id}: {e}")
