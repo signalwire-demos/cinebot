@@ -1434,11 +1434,12 @@ body {
     animation: star-pulse 2s ease-in-out infinite;
 }
 
-/* The old theme referenced this animation but never defined it, so the stars
-   sat static. Defined here. */
+/* Matches the deployed theme byte for byte. The stars SWELL (scale 1.1) and
+   dim only slightly; an earlier pass here had them shrink to 0.9 and dim to
+   0.65, which reads as a sharper, faster blink even at the same 2s duration. */
 @keyframes star-pulse {
-    0%, 100% { opacity: 1;    transform: scale(1); }
-    50%      { opacity: 0.65; transform: scale(0.9); }
+    0%, 100% { opacity: 1;   transform: scale(1); }
+    50%      { opacity: 0.7; transform: scale(1.1); }
 }
 
 .theater-tagline {
