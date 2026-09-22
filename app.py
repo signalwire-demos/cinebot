@@ -2400,6 +2400,18 @@ class MovieAgent(AgentBase):
             self.set_param("video_talking_file", f"{base_url}/cinebot_talking.mp4")
             print(f"Set video URLs to use host: {base_url}")
 
+            # Silence instead of the platform's default hold music.
+            #
+            # The AI is held for the length of a trailer (see /trailer/hold),
+            # and the default hold music played straight over the film. There
+            # is no "no hold music" switch -- hold_music takes a URL -- so we
+            # serve ten seconds of digital silence and point it at that.
+            #
+            # web/silence.mp3 is generated, not recorded:
+            #   ffmpeg -f lavfi -i anullsrc=r=44100:cl=mono -t 10 \
+            #          -c:a libmp3lame -b:a 32k web/silence.mp3
+            self.set_param("hold_music", f"{base_url}/silence.mp3")
+
         # Optional post-prompt URL from environment
         post_prompt_url = os.environ.get("POST_PROMPT_URL")
         if post_prompt_url:
