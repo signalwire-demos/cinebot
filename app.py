@@ -87,7 +87,8 @@ def get_rest_client():
 # ---------------------------------------------------------------------------
 _TRAILER_CALLS = {}
 _TRAILER_CALL_TTL = 6 * 3600
-_TRAILER_HOLD_MAX = 900  # platform ceiling for a hold, in seconds
+_TRAILER_HOLD_MAX = 900      # platform ceiling for a hold, in seconds
+_TRAILER_HOLD_DEFAULT = 300  # backstop until the browser reports the real runtime
 
 
 def remember_trailer_call(raw_data):
@@ -1367,15 +1368,39 @@ class MovieAgent(AgentBase):
                     # Describe available videos for voice navigation
                     if len(filtered_videos) == 1:
                         video = filtered_videos[0]
-                        response = f"I found a {video['type'].lower()} for {content_name}: '{video['name']}'. "
-                        response += "It's now playing on your screen."
-                        
+                        # Terse on purpose. The browser opens the trailer the
+                        # moment this event arrives, and hold does not cut off
+                        # speech already in flight -- it only stops the agent
+                        # taking NEW turns. Anything said here lands over the
+                        # opening seconds of the film, so there is nothing to
+                        # gain from narrating what the caller can already see.
+                        response = "Playing it now."
+
                         # Send single video
                         result = SwaigFunctionResult(response=response)
                         result.swml_user_event({
                             "type": "video_available",
                             "data": {"video": video, "all_videos": filtered_videos}
                         })
+                        # Hold here, with the tool result, instead of waiting
+                        # for the browser to come back over /trailer/hold. That
+                        # round trip was another second of talking, and holding
+                        # atomically lands the action before the model takes a
+                        # speaking turn.
+                        #
+                        # No prompt argument on purpose: passing one sets
+                        # post_process and buys the model one more turn to
+                        # speak, which is the thing being avoided. The timeout
+                        # is only a backstop -- the browser still refines it to
+                        # the real runtime and releases on close.
+                        #
+                        # Note the int: this is the SWML hold ACTION, which
+                        # takes seconds as an integer. The REST command
+                        # calling.ai_hold used by /trailer/hold wants the same
+                        # value as a STRING and silently 400s on an int
+                        # (signalwire/cloud-product#21163). Same concept, two
+                        # transports, two types.
+                        result.hold(_TRAILER_HOLD_DEFAULT)
                     else:
                         # Multiple videos - let user choose via voice
                         video_list = []
