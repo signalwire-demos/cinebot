@@ -37,8 +37,37 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log('CineBot app initializing...');
     initializeElements();
     attachEventListeners();
+    showBuildVersion();
     console.log('CineBot app initialized');
 });
+
+// Name the commit this instance is running, in the page footer.
+//
+// Fetched rather than baked in, so it follows a deploy without the page being
+// rebuilt: /api/version resolves the commit from whatever the deploy path
+// makes available (see resolve_commit in app.py).
+//
+// The footer stays hidden unless a real commit comes back. A visitor seeing
+// "Build unknown" is worse than no footer, and the endpoint deliberately
+// returns unknown rather than guessing.
+async function showBuildVersion() {
+    const footer = document.getElementById('buildFooter');
+    const link = document.getElementById('buildCommit');
+    if (!footer || !link) return;
+    try {
+        const resp = await fetch('/api/version', { cache: 'no-store' });
+        if (!resp.ok) return;
+        const v = await resp.json();
+        if (!v || !v.short) return;
+        link.textContent = v.short;
+        link.title = `${v.commit} (via ${v.source})`;
+        if (v.repo && v.commit) link.href = `${v.repo}/commit/${v.commit}`;
+        footer.classList.remove('hidden');
+    } catch (e) {
+        // A demo must not fail to load because it could not name its build.
+        console.warn('Build version unavailable:', e);
+    }
+}
 
 function initializeElements() {
     elements = {
