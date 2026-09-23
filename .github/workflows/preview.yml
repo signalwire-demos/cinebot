@@ -5,6 +5,27 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, closed]
 
+# The repo default is read-only (default_workflow_permissions: read), and a
+# reusable workflow cannot grant itself more than the caller has. Without this
+# block the deploy succeeds and then the job fails posting the preview URL:
+#
+#   RequestError [HttpError]: Resource not accessible by integration
+#   status: 403  url: .../issues/<n>/comments
+#   x-accepted-github-permissions: issues=write; pull_requests=write
+#
+# which marks the run red while the preview app is up and serving. deploy.yml
+# already declares its own block for the same reason.
+#
+#   issues + pull-requests : comment the preview URL on the PR
+#   statuses               : the workflow sets a preview/deploy commit status
+#   deployments            : preview environment bookkeeping
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  statuses: write
+  deployments: write
+
 concurrency:
   group: preview-${{ github.event.pull_request.number }}
 
