@@ -1688,3 +1688,43 @@ body {
     color: var(--gold);
     opacity: 0.85;
 }
+
+/* ============ BUILD FOOTER ============ */
+/* Names the commit this instance is running, fetched from /api/version so it
+   follows a deploy without anything being rebuilt into the page. Deliberately
+   quiet: it is for whoever is debugging the demo, not for the audience. */
+.build-footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px 20px 20px;
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+}
+
+.build-label {
+    text-transform: uppercase;
+    opacity: 0.7;
+}
+
+.build-commit {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px dotted rgba(212, 175, 55, 0.4);
+    transition: color 150ms var(--ease);
+}
+
+.build-commit:hover {
+    color: var(--accent-strong);
+    border-bottom-color: var(--accent-strong);
+}
+
+/* The PiP and the floating call controls sit above the fold at the bottom
+   right; keep the footer clear of them once a call is up. */
+body:has(.agent-container.corner) .build-footer {
+    padding-bottom: 96px;
+}

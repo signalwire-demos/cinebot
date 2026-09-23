@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Capture the deployed commit so the running app can report it.
+#
+# SOURCE_VERSION is set by herokuish during the BUILD and is gone by the time
+# the process starts, so it has to be written into something that ships in the
+# slug. app.py's resolve_commit() reads this file when no env var carries the
+# commit (see the layered lookup there).
+#
+# Non-fatal on purpose: a demo that cannot name its commit should still deploy.
+set -u
+
+if [ -n "${SOURCE_VERSION:-}" ]; then
+    printf '%s' "$SOURCE_VERSION" > COMMIT
+    echo "-----> Recorded commit ${SOURCE_VERSION:0:7} for /api/version"
+else
+    echo "-----> SOURCE_VERSION not set; /api/version will report unknown"
+fi

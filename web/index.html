@@ -233,6 +233,14 @@
             <div class="loading-spinner"></div>
         </div>
 
+        <!-- Build footer. Populated from /api/version at load; stays hidden
+             if the commit cannot be determined, rather than showing
+             "unknown" to a visitor. -->
+        <footer class="build-footer hidden" id="buildFooter">
+            <span class="build-label">Build</span>
+            <a id="buildCommit" class="build-commit" href="#" target="_blank" rel="noopener noreferrer"></a>
+        </footer>
+
     </div>
 
     <!-- SignalWire v4 browser SDK from CDN (pinned; UMD global is window.SignalWire) -->

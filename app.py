@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import re
 import json
 import time
 import logging
@@ -107,6 +108,75 @@ def remember_trailer_call(raw_data):
 def trailer_call_known(call_id):
     seen = _TRAILER_CALLS.get(call_id)
     return bool(seen) and (time.time() - seen) <= _TRAILER_CALL_TTL
+
+
+# ---------------------------------------------------------------------------
+# Which commit is this instance running
+#
+# Three deploy paths, none of which share a mechanism:
+#
+#   Dokku / buildpack  SOURCE_VERSION exists during the BUILD but not at
+#                      runtime, so bin/post_compile writes it to COMMIT and
+#                      that file ships in the slug.
+#   Docker             the Dockerfile stamps GIT_COMMIT, or .git is in the
+#                      image and git can be asked directly.
+#   Running from src   .git is right there.
+#
+# Resolved once per process: a deploy replaces the process, so the value
+# cannot go stale without the thing that produced it also being replaced.
+# ---------------------------------------------------------------------------
+_COMMIT_CACHE = None
+
+
+def resolve_commit():
+    """Return {commit, short, source} for whatever this process is running."""
+    global _COMMIT_CACHE
+    if _COMMIT_CACHE is not None:
+        return _COMMIT_CACHE
+
+    here = Path(__file__).parent
+    found, source = "", "unknown"
+
+    for var in ("SOURCE_VERSION", "GIT_COMMIT", "COMMIT_SHA", "GIT_REV"):
+        value = (os.environ.get(var) or "").strip()
+        if value:
+            found, source = value, f"env:{var}"
+            break
+
+    if not found:
+        commit_file = here / "COMMIT"
+        try:
+            found = commit_file.read_text(encoding="utf-8").strip()
+            source = "file:COMMIT"
+        except OSError:
+            pass
+
+    if not found:
+        try:
+            import subprocess
+            found = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=here, capture_output=True,
+                text=True, timeout=5,
+            ).stdout.strip()
+            if found:
+                source = "git"
+        except Exception:
+            # No git binary, no .git, or a slug that stripped it. Not an error:
+            # the footer just says unknown rather than the page failing.
+            pass
+
+    # Accept only something that looks like a SHA, so a stray file or a
+    # mis-set variable cannot put arbitrary text into the page footer.
+    if not re.fullmatch(r"[0-9a-fA-F]{7,40}", found or ""):
+        found, source = "", "unknown"
+
+    _COMMIT_CACHE = {
+        "commit": found,
+        "short": found[:7],
+        "source": source,
+        "repo": "https://github.com/signalwire-demos/cinebot",
+    }
+    return _COMMIT_CACHE
 
 
 def find_resource_address(addresses, agent_name):
@@ -2565,6 +2635,11 @@ def create_server(port=None):
         server.serve_static_files(str(web_dir))
 
     # Add API endpoints
+    @server.app.get("/api/version")
+    async def get_version():
+        """Which commit this instance is actually running."""
+        return JSONResponse(content=resolve_commit())
+
     @server.app.get("/api/menu")
     async def get_menu():
         """Return available genres for the UI"""
