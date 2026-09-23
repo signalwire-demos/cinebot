@@ -37,9 +37,37 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log('CineBot app initializing...');
     initializeElements();
     attachEventListeners();
+    setupThemePicker();
     showBuildVersion();
     console.log('CineBot app initialized');
 });
+
+
+// Theme picker -- sets data-theme on <html> and persists it. The saved theme is
+// already applied pre-paint by the inline script in index.html's <head>; this
+// only syncs the control and handles changes.
+function setupThemePicker() {
+    const select = document.getElementById('themeSelect');
+    if (!select) return;
+    // Validate against the real options: an unknown stored value leaves
+    // select.value empty and renders the dropdown blank.
+    const known = Array.from(select.options).map((o) => o.value);
+    let saved = 'hollywood';
+    try { saved = localStorage.getItem('cinebotTheme') || 'hollywood'; } catch (e) {}
+    if (!known.includes(saved)) {
+        console.warn(`Unknown saved theme '${saved}' - falling back to hollywood`);
+        saved = 'hollywood';
+    }
+    document.documentElement.setAttribute('data-theme', saved);
+    select.value = saved;
+    try { localStorage.setItem('cinebotTheme', saved); } catch (e) {}
+
+    select.addEventListener('change', (e) => {
+        const t = e.target.value || 'hollywood';
+        document.documentElement.setAttribute('data-theme', t);
+        try { localStorage.setItem('cinebotTheme', t); } catch (e) {}
+    });
+}
 
 // Name the commit this instance is running, in the page footer.
 //
@@ -51,9 +79,11 @@ document.addEventListener('DOMContentLoaded', () => {
 // "Build unknown" is worse than no footer, and the endpoint deliberately
 // returns unknown rather than guessing.
 async function showBuildVersion() {
-    const footer = document.getElementById('buildFooter');
+    // Toggles only the build half: the footer also carries the theme picker,
+    // which must stay visible whether or not the commit is known.
+    const info = document.getElementById('buildInfo');
     const link = document.getElementById('buildCommit');
-    if (!footer || !link) return;
+    if (!info || !link) return;
     try {
         const resp = await fetch('/api/version', { cache: 'no-store' });
         if (!resp.ok) return;
@@ -62,7 +92,7 @@ async function showBuildVersion() {
         link.textContent = v.short;
         link.title = `${v.commit} (via ${v.source})`;
         if (v.repo && v.commit) link.href = `${v.repo}/commit/${v.commit}`;
-        footer.classList.remove('hidden');
+        info.classList.remove('hidden');
     } catch (e) {
         // A demo must not fail to load because it could not name its build.
         console.warn('Build version unavailable:', e);
