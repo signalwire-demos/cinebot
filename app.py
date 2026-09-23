@@ -1397,9 +1397,8 @@ class MovieAgent(AgentBase):
                         # Note the int: this is the SWML hold ACTION, which
                         # takes seconds as an integer. The REST command
                         # calling.ai_hold used by /trailer/hold wants the same
-                        # value as a STRING and silently 400s on an int
-                        # (signalwire/cloud-product#21163). Same concept, two
-                        # transports, two types.
+                        # value as a STRING and silently 400s on an int. Same
+                        # concept, two transports, two types.
                         result.hold(_TRAILER_HOLD_DEFAULT)
                     else:
                         # Multiple videos - let user choose via voice
