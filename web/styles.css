@@ -1728,3 +1728,522 @@ body {
 body:has(.agent-container.corner) .build-footer {
     padding-bottom: 96px;
 }
+
+/* ============ THEME PICKER ============ */
+.theme-picker {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+.theme-picker select {
+    /* appearance:none is required or Chrome paints the native light control
+       and ignores background/color entirely, which reads as a foreign grey
+       box on both themes. The caret is drawn back on as a background image. */
+    appearance: none;
+    -webkit-appearance: none;
+    font-family: inherit;
+    font-size: 11px;
+    padding: 5px 24px 5px 9px;
+    border-radius: 4px;
+    border: 1px solid var(--border-strong);
+    background-color: rgba(0, 0, 0, 0.45);
+    background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+                      linear-gradient(135deg, currentColor 50%, transparent 50%);
+    background-position: calc(100% - 13px) 50%, calc(100% - 8px) 50%;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+    color: var(--text);
+    cursor: pointer;
+}
+
+/* The dropdown list itself is rendered by the OS; only these two carry over. */
+.theme-picker select option {
+    background: #14171d;
+    color: #f2f4f8;
+}
+
+.theme-picker select:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+/* ============================================================================
+   THEME: STREAMING
+   ============================================================================
+   The base stylesheet above IS the Old Hollywood theme, so this block is the
+   override — same approach the other demos use (base + html[data-theme="x"])
+   rather than scoping several hundred lines of decoration.
+
+   This is the poster-first look of a streaming service: near-black ground, one
+   red accent, tight bold type, artwork doing the work, and cards that lift on
+   hover. Deliberately an homage to the idiom, not a copy of anyone's brand —
+   no wordmark, no logo, and the red is a plain crimson.
+
+   The markup is identical in both themes; nothing is added or removed by JS.
+   ========================================================================= */
+html[data-theme="modern"] {
+    --bg: #141414;
+    --surface: #181818;
+    --surface-2: #232323;
+    --border: rgba(255, 255, 255, 0.10);
+    --border-strong: rgba(255, 255, 255, 0.22);
+    --text: #ffffff;
+    --text-secondary: #b3b3b3;
+    --text-muted: #8c8c8c;
+    --text-faint: rgba(255, 255, 255, 0.45);
+    --accent: #e50914;
+    --accent-strong: #f6121d;
+    --accent-ink: #ffffff;
+    --radius-sm: 3px;
+    --radius: 4px;
+    --radius-lg: 6px;
+    --curtain-w: 0px;
+}
+
+html[data-theme="modern"] body {
+    background-image: none;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+/* Decoration: present in the DOM, simply not shown here. */
+html[data-theme="modern"] .curtain-left,
+html[data-theme="modern"] .curtain-right,
+html[data-theme="modern"] .marquee-lights,
+html[data-theme="modern"] .art-deco-border,
+html[data-theme="modern"] .ornate-frame,
+html[data-theme="modern"] .star-accent {
+    display: none;
+}
+
+/* ---- header: solid bar, red wordmark ---- */
+html[data-theme="modern"] .theater-header {
+    position: sticky;
+    top: 0;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    height: 76px;
+    margin: 0;
+    padding: 0 4%;
+    text-align: left;
+    background: #141414;
+    border-bottom: none;
+    box-shadow: none;
+}
+
+html[data-theme="modern"] .header-content {
+    padding: 0;
+    margin-right: auto;
+}
+
+html[data-theme="modern"] .theater-title {
+    font-family: 'Inter', sans-serif;
+    font-size: clamp(28px, 3vw, 38px);
+    font-weight: 900;
+    letter-spacing: -0.055em;
+    line-height: 1;
+    color: var(--accent);
+    text-shadow: 0 2px 10px rgba(229, 9, 20, 0.28);
+    text-transform: uppercase;
+}
+
+html[data-theme="modern"] .theater-tagline {
+    display: none;
+}
+
+/* ---- buttons: white primary, translucent secondary ---- */
+html[data-theme="modern"] .vintage-btn {
+    font-family: inherit;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: none;
+    height: 44px;
+    padding: 0 26px;
+    border: none;
+    border-radius: var(--radius);
+    background: #ffffff;
+    color: #000000;
+    box-shadow: none;
+    transition: background 150ms ease;
+}
+
+html[data-theme="modern"] .vintage-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.78);
+    box-shadow: none;
+    transform: none;
+}
+
+html[data-theme="modern"] .vintage-btn::before,
+html[data-theme="modern"] .vintage-btn::after {
+    display: none;
+}
+
+html[data-theme="modern"] .hangup-btn.vintage-btn {
+    background: rgba(109, 109, 110, 0.7);
+    color: #ffffff;
+    border: none;
+}
+
+html[data-theme="modern"] .hangup-btn.vintage-btn:hover:not(:disabled) {
+    background: rgba(109, 109, 110, 0.5);
+}
+
+html[data-theme="modern"] .github-ticket {
+    /* Both this and the theme picker come out of absolute positioning here and
+       flow as flex children instead. Hand-tuned `right` offsets for two items
+       of different widths is how they ended up overlapping. */
+    position: static;
+    transform: none;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+}
+
+html[data-theme="modern"] .github-ticket:hover {
+    color: #ffffff;
+    background: transparent;
+    box-shadow: none;
+}
+
+/* ---- billboard: side scrim like a streaming hero, not a bottom fade ---- */
+html[data-theme="modern"] .backdrop-gradient {
+    background:
+        linear-gradient(to right, #141414 0%, rgba(20, 20, 20, 0.85) 32%, rgba(20, 20, 20, 0.12) 66%, rgba(20, 20, 20, 0.35) 100%),
+        linear-gradient(to top, #141414 0%, transparent 28%);
+}
+
+html[data-theme="modern"] .movie-title,
+html[data-theme="modern"] .person-header-name {
+    font-family: 'Inter', sans-serif;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+}
+
+/* ---- the part that actually reads as a streaming service: the cards ---- */
+html[data-theme="modern"] .movie-card,
+html[data-theme="modern"] .episode-card,
+html[data-theme="modern"] .season-card {
+    transition: transform 250ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+html[data-theme="modern"] .movie-card:hover,
+html[data-theme="modern"] .episode-card:hover,
+html[data-theme="modern"] .season-card:hover {
+    transform: scale(1.09);
+    z-index: 5;
+}
+
+html[data-theme="modern"] .movie-card-poster,
+html[data-theme="modern"] .movie-poster {
+    border: none;
+    border-radius: var(--radius);
+    transition: box-shadow 250ms ease;
+}
+
+html[data-theme="modern"] .movie-card:hover .movie-card-poster {
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.8);
+}
+
+/* Titles sit back so a row reads as a wall of artwork, and come forward on
+   hover. Dimmed rather than hidden: hover does not exist on touch, and most
+   posters carry the title as artwork anyway, so hiding the text entirely
+   leaves nothing to read on a phone. */
+html[data-theme="modern"] .movie-card-title,
+html[data-theme="modern"] .movie-card-year {
+    opacity: 0.62;
+    transition: opacity 200ms ease;
+}
+
+html[data-theme="modern"] .movie-card:hover .movie-card-title,
+html[data-theme="modern"] .movie-card:hover .movie-card-year {
+    opacity: 1;
+}
+
+@media (hover: none) {
+    html[data-theme="modern"] .movie-card-title,
+    html[data-theme="modern"] .movie-card-year {
+        opacity: 1;
+    }
+}
+
+html[data-theme="modern"] .position-badge {
+    background: var(--accent);
+    border: none;
+    color: #ffffff;
+    font-weight: 700;
+}
+
+html[data-theme="modern"] .media-type-badge,
+html[data-theme="modern"] .in-theaters-badge,
+html[data-theme="modern"] .episode-badge {
+    background: var(--accent);
+    color: #ffffff;
+    border: none;
+}
+
+/* Carousels sit tighter, and need room for a card to grow into. */
+html[data-theme="modern"] .movies-carousel,
+html[data-theme="modern"] .trending-carousel,
+html[data-theme="modern"] .filmography-carousel,
+html[data-theme="modern"] .cast-carousel,
+html[data-theme="modern"] .seasons-carousel {
+    gap: 8px;
+    padding-block: 26px;
+}
+
+html[data-theme="modern"] .movies-grid {
+    gap: 8px;
+}
+
+/* ---- section headings: small, bold, quiet ---- */
+html[data-theme="modern"] .cast-section h3,
+html[data-theme="modern"] .similar-section h3,
+html[data-theme="modern"] .trending-section h3,
+html[data-theme="modern"] .filmography-section h3,
+html[data-theme="modern"] .seasons-section h3,
+html[data-theme="modern"] .watch-providers h3 {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: #e5e5e5;
+}
+
+/* ---- video card and hero ---- */
+html[data-theme="modern"] .video-container {
+    border: none;
+    border-radius: var(--radius-lg);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+}
+
+html[data-theme="modern"] .hero {
+    /* Less the header AND the footer: the theme picker lives down there now,
+       so pushing it below the fold would hide the control. */
+    min-height: calc(100dvh - 76px - var(--footer-h));
+    padding: 24px 4% 56px;
+}
+
+html[data-theme="modern"] .agent-container.corner {
+    right: 16px;
+}
+
+html[data-theme="modern"] .no-results {
+    font-family: 'Inter', sans-serif;
+    font-style: normal;
+}
+
+/* ---- idle state as a billboard, not a box on black ----
+   A streaming home page is never empty. Flat #141414 behind a floating card
+   was the bare part; this gives the ground some depth and turns the idle
+   agent card into a wide hero with its copy sitting over the bottom-left,
+   the way a service presents its featured title. */
+html[data-theme="modern"] body {
+    background-image:
+        radial-gradient(1200px 520px at 18% -8%, rgba(229, 9, 20, 0.13), transparent 62%),
+        radial-gradient(900px 600px at 100% 0%, rgba(80, 90, 120, 0.10), transparent 60%),
+        linear-gradient(to bottom, #1b1b1b 0%, #141414 42%);
+    background-attachment: fixed;
+}
+
+/* Only while idle -- once the video docks to the PiP the hero collapses. */
+html[data-theme="modern"] .hero:has(.agent-container.centered):not(:has(video)) {
+    position: relative;
+    justify-content: flex-end;
+    align-items: stretch;
+    padding: 0 0 56px;
+    gap: 0;
+}
+
+html[data-theme="modern"] .hero:not(:has(video)) .agent-container.centered {
+    width: min(100%, 1500px);
+    margin: 0 auto;
+    padding: 0 4%;
+}
+
+html[data-theme="modern"] .hero:has(.agent-container.centered):not(:has(video)) .video-container {
+    aspect-ratio: 21 / 9;
+    border-radius: var(--radius-lg);
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.75);
+}
+
+/* Scrim across the lower third of the billboard, so overlaid copy stays
+   legible whatever the avatar is doing behind it. */
+html[data-theme="modern"] .hero:has(.agent-container.centered):not(:has(video)) .video-container::before {
+    content: '';
+    position: absolute;
+    inset: auto 0 0 0;
+    height: 62%;
+    z-index: 1;
+    pointer-events: none;
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+    background: linear-gradient(to top,
+        rgba(20, 20, 20, 0.96) 0%,
+        rgba(20, 20, 20, 0.72) 38%,
+        transparent 100%);
+}
+
+/* The tagline returns as the billboard's headline. */
+html[data-theme="modern"] .hero:has(.agent-container.centered):not(:has(video)) ~ * .theater-tagline,
+html[data-theme="modern"] .theater-tagline {
+    display: none;
+}
+
+html[data-theme="modern"] .hero:has(.agent-container.centered):not(:has(video)) .connection-controls-container {
+    position: absolute;
+    left: 0;
+    right: auto;
+    bottom: 96px;
+    z-index: 2;
+    align-items: flex-start;
+    width: min(100%, 1500px);
+    padding: 0 calc(4% + 34px);
+    margin: 0 auto;
+}
+
+/* A one-line pitch above the button, drawn in CSS so no markup changes. */
+html[data-theme="modern"] .hero:has(.agent-container.centered):not(:has(video)) .connection-controls-container::before {
+    content: 'Your AI movie companion';
+    display: block;
+    margin-bottom: 14px;
+    font-size: clamp(22px, 3.2vw, 40px);
+    font-weight: 800;
+    letter-spacing: -0.035em;
+    line-height: 1.05;
+    color: #ffffff;
+    text-shadow: 0 2px 14px rgba(0, 0, 0, 0.7);
+}
+
+html[data-theme="modern"] .hero:has(.agent-container.centered):not(:has(video)) .connection-controls-container::after {
+    content: 'Ask for a film, a cast list, or a trailer — out loud.';
+    display: block;
+    margin-top: 12px;
+    max-width: 46ch;
+    font-size: 14px;
+    line-height: 1.5;
+    color: rgba(255, 255, 255, 0.78);
+    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.7);
+}
+
+/* The placeholder text is redundant once the billboard copy is there. */
+html[data-theme="modern"] .hero:has(.agent-container.centered):not(:has(video)) .video-container:not(:has(video))::after {
+    content: '';
+}
+
+/* ---- Connect button: theme-coloured, with a shimmer on hover ----
+   The Hollywood button brightens and lifts on hover; this is the streaming
+   equivalent, in the theme's red rather than gold. A light band sweeps across
+   once per hover, clipped by the button.
+
+   Respects reduced motion for free: the global block caps
+   animation-iteration-count, so the sweep settles instead of repeating. */
+html[data-theme="modern"] .connect-btn.vintage-btn {
+    position: relative;
+    overflow: hidden;
+    background: var(--accent);
+    color: #ffffff;
+    box-shadow: 0 2px 14px rgba(229, 9, 20, 0.35);
+    transition: background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+html[data-theme="modern"] .connect-btn.vintage-btn:hover:not(:disabled) {
+    background: var(--accent-strong);
+    box-shadow: 0 6px 26px rgba(229, 9, 20, 0.5);
+    transform: translateY(-1px);
+}
+
+/* ::after is display:none for vintage buttons in this theme; bring it back
+   just for this one, as the sweep. */
+html[data-theme="modern"] .connect-btn.vintage-btn::after {
+    content: '';
+    display: block;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    /* height must be reset: the Hollywood base sets 8px for the sprocket
+       holes, and an explicit height beats top+bottom, which left this as a
+       thin strip along the top edge instead of a full-height band. */
+    height: auto;
+    left: -70%;
+    width: 45%;
+    transform: skewX(-20deg);
+    background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0.10) 35%,
+        rgba(255, 255, 255, 0.45) 50%,
+        rgba(255, 255, 255, 0.10) 65%,
+        transparent 100%);
+    pointer-events: none;
+}
+
+html[data-theme="modern"] .connect-btn.vintage-btn:hover:not(:disabled)::after {
+    /* Near-linear on purpose. The site's usual ease-out puts almost all the
+       travel in the first 150ms, so the sweep was over before it registered. */
+    animation: streaming-shimmer 800ms cubic-bezier(0.35, 0.1, 0.45, 0.95);
+}
+
+@keyframes streaming-shimmer {
+    from { left: -70%; }
+    to   { left: 130%; }
+}
+
+/* ---- footer carries the build info and the theme picker ---- */
+:root {
+    --footer-h: 62px;
+}
+
+.build-footer {
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    min-height: var(--footer-h);
+}
+
+.build-info {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Separator only when both halves are present, so an unknown build does not
+   leave a stray dot in front of the picker. */
+.build-info:not(.hidden) + .theme-picker::before {
+    content: '·';
+    margin-right: 10px;
+    opacity: 0.45;
+}
+
+.theme-picker-label {
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    opacity: 0.7;
+}
+
+html[data-theme="modern"] .build-footer {
+    padding-bottom: 18px;
+}
+
+/* The billboard is the full-bleed idle state; it still has to stop short of
+   the footer. */
+html[data-theme="modern"] .hero:has(.agent-container.centered):not(:has(video)) {
+    min-height: calc(100dvh - 76px - var(--footer-h));
+}
+
+/* The base clamps the idle card against viewport height —
+   calc((100dvh - 300px) * 1.5) — where 300px allows for a 57px header plus
+   the controls. The theatre header is roughly 228px and the footer now
+   carries the theme picker, so that allowance is too small and the footer
+   dropped below the fold on 768-800px screens, taking the picker with it. */
+html[data-theme="hollywood"] .agent-container.centered,
+html:not([data-theme]) .agent-container.centered {
+    width: max(240px, min(88vw, 680px, calc((100dvh - 470px) * 1.5)));
+}
