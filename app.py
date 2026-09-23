@@ -5,6 +5,7 @@ import time
 import logging
 import threading
 import warnings
+import contextvars
 from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, Response
@@ -258,6 +259,42 @@ def setup_swml_handler():
                 swml_setup_error = f"failed to create handler '{agent_name}': {e}"
 
 
+# ---------------------------------------------------------------------------
+# Per-call conversation state
+#
+# One MovieAgent instance serves every caller. These nine values describe "what
+# this caller is currently looking at", so holding them as plain instance
+# attributes meant all callers shared one set: a second caller searching
+# overwrote the first caller's search_result_mapping, and the first caller's
+# next "tell me about number 4" resolved against the wrong list. The watchlist
+# was worse -- a single global list, additionally readable by anyone over an
+# unauthenticated GET /api/watchlist.
+#
+# They are now per-call, keyed by the call id bound in on_function_call. A
+# ContextVar is what makes that safe under concurrency: each request runs in
+# its own context, so two callers dispatching tools at the same time cannot see
+# each other's binding.
+# ---------------------------------------------------------------------------
+_CURRENT_CALL_ID = contextvars.ContextVar("cinebot_current_call_id", default=None)
+
+SESSION_DEFAULTS = {
+    "current_search_results": list,
+    "search_result_mapping": dict,     # position -> movie/TV details with ids
+    "person_search_mapping": dict,     # position -> person details with ids
+    "last_search_info": str,           # info about the last search, for the AI
+    "last_person_search_info": str,
+    "current_movie_id": lambda: None,
+    "current_person_id": lambda: None,
+    "current_tv_id": lambda: None,
+    "watchlist": list,
+}
+
+# A call that has gone quiet is dropped; the cap stops an unbounded demo from
+# accumulating sessions if calls are never cleanly torn down.
+_SESSION_TTL = 6 * 3600
+_SESSION_MAX = 500
+
+
 class MovieAgent(AgentBase):
     def __init__(self):
         super().__init__(
@@ -271,21 +308,68 @@ class MovieAgent(AgentBase):
             redis_url=os.getenv("REDIS_URL")
         )
         
-        # Order state tracking
-        self.current_search_results = []
-        self.search_result_mapping = {}  # Maps position to movie/TV details with IDs
-        self.person_search_mapping = {}  # Maps position to person details with IDs
-        self.last_search_info = ""  # Info about last search for AI reference
-        self.last_person_search_info = ""  # Info about last person search
-        self.current_movie_id = None
-        self.current_person_id = None
-        self.current_tv_id = None
-        self.watchlist = []
-        
+        # Per-call conversation state. There is ONE MovieAgent serving every
+        # caller, so the attributes listed in SESSION_DEFAULTS used to be plain
+        # instance attributes shared by everyone: two callers browsing at once
+        # overwrote each other's search results, and "tell me about number 4"
+        # could resolve against somebody else's list. They are now properties
+        # backed by this dict, keyed by call id (see _session and the property
+        # installation below the class).
+        self._sessions = {}
+        self._sessions_seen = {}
+
         # Setup agent configuration
         self._setup_agent()
         self._setup_functions()
-    
+
+    def _session(self):
+        """
+        State for the call currently being served, created on first use.
+
+        The call id comes from a ContextVar set in on_function_call, which is
+        the single point every SWAIG tool is dispatched through
+        (signalwire/core/swml_service.py calls target.on_function_call). Each
+        request runs in its own context, so concurrent callers cannot see each
+        other's value.
+
+        Outside a tool call the id is None and everything shares one bucket.
+        That is only reached by code that is not serving a specific caller;
+        no HTTP route returns it (see /api/watchlist).
+        """
+        call_id = _CURRENT_CALL_ID.get()
+        now = time.time()
+
+        if len(self._sessions) > _SESSION_MAX or (
+            self._sessions and now - min(self._sessions_seen.values()) > _SESSION_TTL
+        ):
+            for known, seen in list(self._sessions_seen.items()):
+                if now - seen > _SESSION_TTL:
+                    self._sessions.pop(known, None)
+                    self._sessions_seen.pop(known, None)
+
+        session = self._sessions.get(call_id)
+        if session is None:
+            session = {name: factory() for name, factory in SESSION_DEFAULTS.items()}
+            self._sessions[call_id] = session
+        self._sessions_seen[call_id] = now
+        return session
+
+    def on_function_call(self, name, args, raw_data=None):
+        """
+        Bind the calling call id for the duration of one tool call.
+
+        Every SWAIG tool reaches the agent through here, so this is the only
+        place that needs to know about per-call state; the seventeen handlers
+        and their ~120 `self.<attr>` references are unchanged.
+        """
+        call_id = (raw_data or {}).get("call_id")
+        token = _CURRENT_CALL_ID.set(call_id)
+        try:
+            return super().on_function_call(name, args, raw_data)
+        finally:
+            _CURRENT_CALL_ID.reset(token)
+
+
     def _setup_agent(self):
         """Configure agent personality and conversation contexts"""
 
@@ -2419,6 +2503,28 @@ class MovieAgent(AgentBase):
             self.set_post_prompt_url(post_prompt_url)
 
 
+# Install the per-call state as properties, so the seventeen tool handlers keep
+# reading and writing `self.search_result_mapping` and friends exactly as
+# before and the change stays confined to this file's plumbing. Done after the
+# class body because it is generated from SESSION_DEFAULTS rather than written
+# out nine times.
+def _install_session_properties(cls, names):
+    def make(name):
+        def getter(self):
+            return self._session()[name]
+
+        def setter(self, value):
+            self._session()[name] = value
+
+        return property(getter, setter, doc=f"Per-call {name} (see MovieAgent._session)")
+
+    for name in names:
+        setattr(cls, name, make(name))
+
+
+_install_session_properties(MovieAgent, SESSION_DEFAULTS)
+
+
 HOST = "0.0.0.0"
 PORT = int(os.environ.get('PORT', 3030))
 
@@ -2445,9 +2551,21 @@ def create_server(port=None):
             return JSONResponse(content={"genres": []})
 
     @server.app.get("/api/watchlist")
-    async def get_watchlist():
-        """Return current watchlist"""
-        return JSONResponse(content={"watchlist": agent.watchlist})
+    async def get_watchlist(call_id: str = ""):
+        """
+        Return one caller's watchlist.
+
+        This used to return `agent.watchlist`: a single process-global list that
+        every caller appended to, served over an unauthenticated GET. Anyone who
+        knew the hostname could read what callers had been adding, and callers
+        saw each other's entries.
+
+        It is now scoped to a call id, which is a UUID the caller's own browser
+        holds. Unknown ids get an empty list rather than a distinguishing error,
+        so this cannot be used to probe which calls are live.
+        """
+        session = agent._sessions.get(call_id) if call_id else None
+        return JSONResponse(content={"watchlist": (session or {}).get("watchlist", [])})
 
     @server.app.post("/trailer/hold")
     async def trailer_hold(request: Request):
