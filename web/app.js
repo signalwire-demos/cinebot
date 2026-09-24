@@ -1567,6 +1567,7 @@ let currentTrailer = null;
 const TRAILER_HOLD_FALLBACK_S = 300;
 
 let trailerHeld = false;
+let trailerRefined = false;
 let ytPlayer = null;
 let ytApiLoading = null;
 
@@ -1599,6 +1600,14 @@ async function holdForTrailer(seconds, refine) {
     // Without it the first (provisional) hold would win and the agent would
     // come back mid-film, or sit silent long after a short trailer ended.
     if (!callId || (trailerHeld && !refine)) return;
+    // onReady and onStateChange(PLAYING) both refine, and both fire for the
+    // first trailer of a session. Comparing the value is not enough --
+    // getDuration drifts by a second between the two events -- so refine at
+    // most once per trailer.
+    if (refine) {
+        if (trailerRefined) return;
+        trailerRefined = true;
+    }
     try {
         const resp = await fetch('/trailer/hold', {
             method: 'POST',
@@ -1616,6 +1625,7 @@ async function releaseTrailerHold() {
     if (!trailerHeld) return;
     trailerHeld = false;               // cleared first: a failed release must
                                        // not leave us thinking we are held
+    trailerRefined = false;
     const callId = currentCallId();
     if (!callId) return;
     try {
@@ -1676,7 +1686,13 @@ function playTrailer(video) {
             fs: 1,
             iv_load_policy: 3, // Hide annotations
             color: 'red', // Red progress bar
-            showinfo: 0 // Hide video title/uploader before playing
+            showinfo: 0, // Hide video title/uploader before playing
+            // Required for the IFrame API. Without these the YT.Player below
+            // is constructed but never completes its handshake, so onReady and
+            // onStateChange never fire -- which silently disables the hold's
+            // refine-to-real-duration step and auto-close when a trailer ends.
+            enablejsapi: 1,
+            origin: window.location.origin
         });
         
         // Reuse the player across trailers; only set src for the first one,
@@ -1689,6 +1705,8 @@ function playTrailer(video) {
         }
         elements.trailerModal.classList.remove('hidden');
         currentTrailer = trailerVideo;
+
+        trailerRefined = false;   // each trailer gets one refine
 
         // Hold IMMEDIATELY with a conservative default, then refine to the
         // real runtime once the player reports it. Waiting for the player
