@@ -7,6 +7,37 @@ from datetime import datetime, timedelta
 import hashlib
 
 
+# Videos are trimmed before they reach the caller, and app.py then filters them
+# by type. Truncating in TMDB's own order meant whether a trailer survived was
+# luck: every title came back with exactly 3 videos, and for Barbie,
+# Oppenheimer, Alien, 1917 and 2001 none of the three was a Trailer, so the
+# demo reported "no trailer available" for films that plainly have one.
+# Order by what a viewer is most likely to have asked for, then trim.
+_VIDEO_TYPE_ORDER = {
+    "Trailer": 0,
+    "Teaser": 1,
+    "Clip": 2,
+    "Featurette": 3,
+    "Behind the Scenes": 4,
+    "Bloopers": 5,
+}
+_VIDEO_LIMIT = 12
+
+
+def _rank_videos(videos):
+    """Trailers first, official before unofficial, newest first within a type."""
+    return sorted(
+        videos,
+        key=lambda v: (
+            _VIDEO_TYPE_ORDER.get(v.get("type"), 9),
+            not v.get("official", False),
+            -(len(v.get("published_at") or "")),
+            v.get("published_at") or "",
+        ),
+        reverse=False,
+    )[:_VIDEO_LIMIT]
+
+
 class TMDBClient:
     def __init__(self, api_key: str, redis_url: Optional[str] = None):
         self.api_key = api_key
@@ -175,7 +206,8 @@ class TMDBClient:
                 }
                 for video in info["videos"].get("results", [])
                 if video["site"] == "YouTube"
-            ][:3]
+            ]
+            details["videos"] = _rank_videos(details["videos"])
         
         if "similar" in info:
             details["similar"] = [
@@ -540,7 +572,8 @@ class TMDBClient:
                 }
                 for video in info["videos"].get("results", [])
                 if video["site"] == "YouTube"
-            ][:3]
+            ]
+            details["videos"] = _rank_videos(details["videos"])
         
         # Get similar shows
         if "similar" in info:
