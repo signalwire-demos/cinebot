@@ -24,6 +24,45 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+class RedactSecrets(logging.Filter):
+    """
+    Strip credentials out of log records.
+
+    A failed TMDB request raises an HTTPError whose text is the whole request
+    URL -- api key included -- and there are ~18 `logger.error(f"...: {e}")`
+    sites that would write it out verbatim. A single 404 put the key in the
+    container log three times.
+
+    Applied as a filter on the ROOT logger rather than by editing each call
+    site, so it also covers the SDK's loggers and anything added later.
+    """
+
+    _PATTERNS = [
+        (re.compile(r'((?:api_key|apikey|access_token|auth_token|token)=)[^&\s"\'<>]+', re.I),
+         r'\1<redacted>'),
+        (re.compile(r'(https?://)[^/@\s:]+:[^/@\s]+@'), r'\1<redacted>@'),
+    ]
+
+    def filter(self, record):
+        try:
+            message = record.getMessage()
+        except Exception:
+            return True
+        cleaned = message
+        for pattern, replacement in self._PATTERNS:
+            cleaned = pattern.sub(replacement, cleaned)
+        if cleaned != message:
+            record.msg = cleaned
+            record.args = ()
+        return True
+
+
+_redactor = RedactSecrets()
+logging.getLogger().addFilter(_redactor)
+for _h in logging.getLogger().handlers:
+    _h.addFilter(_redactor)
+
 # Store the SWML handler info for reuse
 swml_handler_info = {"id": None, "address_id": None, "address": None}
 
@@ -177,6 +216,89 @@ def resolve_commit():
         "repo": "https://github.com/signalwire-demos/cinebot",
     }
     return _COMMIT_CACHE
+
+
+# ---------------------------------------------------------------------------
+# Did the CALLER ask for a video, or did the model decide on its own?
+#
+# Playing a trailer puts the agent on hold, so a spurious call silences it
+# mid-sentence -- that is how a caller who said "the first one" got a trailer
+# they never asked for and never heard the film described.
+#
+# The tool description asks the model not to do this, but a description is a
+# request, not a control. swaig_post_conversation puts the transcript on every
+# SWAIG request, so the handler can read the caller's own last turn and decide
+# for itself.
+# ---------------------------------------------------------------------------
+_VIDEO_REQUEST = re.compile(
+    r"\b("
+    r"trailer|teaser|preview|clip|footage|featurette|behind[- ]the[- ]scenes"
+    r"|play\s+(it|that|this|the|one)"
+    r"|watch\s+(it|that|this|the)"
+    r"|show\s+me\s+(it|that|the)"
+    r"|roll\s+it"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def caller_last_utterance(raw_data):
+    """The caller's most recent turn, or None when no transcript was sent."""
+    log = (raw_data or {}).get("call_log")
+    if not isinstance(log, list):
+        return None
+    for entry in reversed(log):
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("role", "")).lower() == "user":
+            content = entry.get("content")
+            return content if isinstance(content, str) else None
+    return None
+
+
+def caller_asked_for_video(raw_data):
+    """
+    True when the caller actually asked to see something.
+
+    Returns True when no transcript is available: without evidence either way,
+    refusing would break playback entirely on any deployment where
+    swaig_post_conversation is off. The refusal only fires on POSITIVE evidence
+    that the caller asked for something else.
+    """
+    utterance = caller_last_utterance(raw_data)
+    if utterance is None:
+        logger.info("No call_log on this SWAIG request; cannot verify video intent")
+        return True
+    asked = bool(_VIDEO_REQUEST.search(utterance))
+    logger.info(f"Video intent check on {utterance[:60]!r} -> {asked}")
+    return asked
+
+
+def resolve_content_id(provided, current_id, mapping):
+    """
+    Turn whatever the model passed for content_id into a real TMDB id.
+
+    The model routinely answers "the trailer for the first one" by passing
+    content_id=1 -- a RESULT POSITION, not a TMDB id. The old code took any
+    supplied value at face value (`content_id or current`), so that became
+    GET /movie/1 and a 404, and the caller was told no videos exist for a film
+    that was on screen a second earlier.
+
+    A small integer that is also a live result position is treated as a
+    position; anything else is passed through untouched.
+    """
+    if not provided:
+        return current_id
+    try:
+        value = int(provided)
+    except (TypeError, ValueError):
+        return current_id
+    if 1 <= value <= 20 and mapping and value in mapping:
+        mapped = (mapping.get(value) or {}).get("id")
+        if mapped:
+            logger.info(f"content_id={value} looks like result position {value}; using id {mapped}")
+            return mapped
+    return value
 
 
 def find_resource_address(addresses, agent_name):
@@ -448,6 +570,11 @@ class MovieAgent(AgentBase):
         # in on_swml_request() with the full URL from get_full_url()
 
         # Agent personality
+        # Puts the transcript on every SWAIG request so handlers can check what
+        # the caller actually said. get_videos relies on it to refuse playing a
+        # trailer nobody asked for; without it that check has nothing to read.
+        self.set_param("swaig_post_conversation", True)
+
         self.set_param("voice_id", "en-US-Standard-J")
         self.set_param("voice_pitch", "-2st")
         self.set_param("voice_rate", "95%")
@@ -617,7 +744,8 @@ class MovieAgent(AgentBase):
             "- When presenting results, show title/name and year only\n" 
             "- If search returns no results, try searching with fewer words\n"
             "- Clear the display before showing new content\n"
-            "- Offer relevant options based on content type (seasons for TV, trailers for movies)\n"
+            "- Mention what else is available (seasons for TV, trailers for movies), but "
+            "wait to be asked before playing anything\n"
             "- When user asks for content with filters (year, genre, rating), use discover_content\n"
             "- When user asks general search without specifying type, use multi_search"
         )
@@ -655,16 +783,25 @@ class MovieAgent(AgentBase):
                     response="Please provide a movie title to search for."
                 )
             
-            # Parse out year from query if present
+            # Parse out year from query if present.
+            #
+            # The year must be INTRODUCED -- "from 1990", "in 1990" or "(1990)".
+            # A bare four-digit number is part of the title, not a filter: the
+            # previous pattern made the prefix optional, so "Blade Runner 2049"
+            # searched for "Blade Runner" released in 2049 and found nothing,
+            # "1917" and "2012" searched for an empty string, and "2001: A
+            # Space Odyssey" searched for ": A Space Odyssey".
             import re
-            year_match = re.search(r'(from |in )?(\d{4})', query, re.IGNORECASE)
+            YEAR_PHRASE = r'\b(?:from|in)\s+(19\d{2}|20\d{2})\b|\((19\d{2}|20\d{2})\)'
+            year_match = re.search(YEAR_PHRASE, query, re.IGNORECASE)
             search_query = query
             year_filter = None
-            
+
             if year_match:
-                year_filter = year_match.group(2)
-                # Remove the year phrase from the search query
-                search_query = re.sub(r'(from |in )?\d{4}', '', query, flags=re.IGNORECASE).strip()
+                year_filter = year_match.group(1) or year_match.group(2)
+                # Strip only the matched phrase, leaving the rest of the title.
+                search_query = re.sub(YEAR_PHRASE, '', query, flags=re.IGNORECASE)
+                search_query = re.sub(r'\s{2,}', ' ', search_query).strip(' ,')
                 logger.info(f"Parsed query: title='{search_query}', year={year_filter}")
             
             try:
@@ -990,7 +1127,7 @@ class MovieAgent(AgentBase):
                 "properties": {
                     "content_id": {
                         "type": "integer",
-                        "description": "The ID of the movie or TV show (uses current if not provided)"
+                        "description": "TMDB id of the movie or TV show. Omit it to use whatever is currently on screen. This is NOT a result position -- never pass 1, 2, 3 here."
                     },
                     "content_type": {
                         "type": "string",
@@ -1004,7 +1141,11 @@ class MovieAgent(AgentBase):
         def get_cast_crew(args, raw_data):
             # Determine content type and ID
             content_type = args.get("content_type")
-            content_id = args.get("content_id")
+            content_id = resolve_content_id(
+                args.get("content_id"),
+                None,
+                self.search_result_mapping,
+            )
             
             # Auto-detect based on current state if not provided
             if not content_type:
@@ -1218,7 +1359,7 @@ class MovieAgent(AgentBase):
                 "properties": {
                     "content_id": {
                         "type": "integer",
-                        "description": "The ID of the movie or TV show (uses current if not provided)"
+                        "description": "TMDB id of the movie or TV show. Omit it to use whatever is currently on screen. This is NOT a result position -- never pass 1, 2, 3 here."
                     },
                     "content_type": {
                         "type": "string",
@@ -1232,7 +1373,11 @@ class MovieAgent(AgentBase):
         def get_similar_content(args, raw_data):
             # Determine content type and ID
             content_type = args.get("content_type")
-            content_id = args.get("content_id")
+            content_id = resolve_content_id(
+                args.get("content_id"),
+                None,
+                self.search_result_mapping,
+            )
             
             # Auto-detect based on current state if not provided
             if not content_type:
@@ -1352,13 +1497,19 @@ class MovieAgent(AgentBase):
         
         @self.tool(
             name="get_videos",
-            description="Get trailers and video clips for a movie or TV show",
+            description=(
+                "Play a trailer or clip on the caller's screen. ONLY call this when "
+                "the caller has explicitly asked to see or play a video. Choosing a "
+                "title, or asking about it, is NOT a request for its trailer. The "
+                "agent is put on hold while a video plays, so calling this unasked "
+                "cuts off whatever you were about to say."
+            ),
             parameters={
                 "type": "object",
                 "properties": {
                     "content_id": {
                         "type": "integer",
-                        "description": "The ID of the movie or TV show (uses current if not provided)"
+                        "description": "TMDB id of the movie or TV show. Omit it to use whatever is currently on screen. This is NOT a result position -- never pass 1, 2, 3 here."
                     },
                     "content_type": {
                         "type": "string",
@@ -1375,6 +1526,18 @@ class MovieAgent(AgentBase):
             }
         )
         def get_videos(args, raw_data):
+            # Refuse to play anything the caller did not ask for. The model
+            # calls this off its own bat after a selection; the hold that comes
+            # with playback then cuts off whatever it was saying. Checked here
+            # rather than trusted to the tool description.
+            if not caller_asked_for_video(raw_data):
+                logger.info("get_videos called without a caller request; not playing")
+                return SwaigFunctionResult(
+                    response=("Do not play a video now - the caller has not asked for one. "
+                              "Carry on with what you were saying, and mention a trailer is "
+                              "available if it is worth offering.")
+                )
+
             # Authorize this caller to drive /trailer/hold and /trailer/unhold.
             # Registering here, rather than on every tool call, keeps the window
             # to callers who have actually reached a trailer.
@@ -1382,7 +1545,11 @@ class MovieAgent(AgentBase):
 
             # Determine content type and ID
             content_type = args.get("content_type")
-            content_id = args.get("content_id")
+            content_id = resolve_content_id(
+                args.get("content_id"),
+                None,
+                self.search_result_mapping,
+            )
             video_type = args.get("video_type", "trailer")
             
             # Auto-detect based on current state if not provided
@@ -1435,8 +1602,18 @@ class MovieAgent(AgentBase):
                     filtered_videos = [v for v in videos if v["type"] == "Trailer"]
                 
                 if filtered_videos:
-                    # Describe available videos for voice navigation
-                    if len(filtered_videos) == 1:
+                    # Play straight away when the caller asked for one KIND of
+                    # video: "play the trailer" wants the trailer, not a menu.
+                    # The client ranks trailers first, official and newest
+                    # ahead of the rest, so index 0 is the one to play.
+                    #
+                    # This used to key off there being exactly one match, which
+                    # only held because the client truncated the video list to
+                    # three and usually cut the trailers off. With the full list
+                    # most films have several, and the demo started reading a
+                    # list out instead of playing anything.
+                    single_kind = video_type in ("trailer", "teaser")
+                    if len(filtered_videos) == 1 or single_kind:
                         video = filtered_videos[0]
                         # Terse on purpose. The browser opens the trailer the
                         # moment this event arrives, and hold does not cut off

@@ -224,7 +224,12 @@
             <div class="modal-content">
                 <button class="close-btn" id="closeTrailerBtn" title="Close">&times;</button>
                 <div class="trailer-wrapper">
-                    <iframe id="trailerFrame" src="" frameborder="0" allowfullscreen></iframe>
+                    <!-- allow= delegates autoplay to the cross-origin player. Permissions
+                         Policy defaults autoplay to "self", so without this the
+                         embed relies on the browser being lenient. -->
+                    <iframe id="trailerFrame" src="" frameborder="0"
+                            allow="autoplay; encrypted-media; fullscreen"
+                            allowfullscreen></iframe>
                 </div>
                 <!-- The AI is held for the length of the trailer, so it does
                      not talk over it. Say so, or voice looks broken. -->
